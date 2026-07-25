@@ -109,10 +109,20 @@ def test_config_load(tmp_path=None):
     assert cfg.backend == "github" and cfg.target["project"] == 5
 
 
+def test_verb_stage():
+    from baton.cli import _verb_stage
+    from baton.config import Config
+    c = Config(backend="github", stages={"approve": "Aceptada"})
+    assert _verb_stage(c, "approve") == "Aceptada"   # config alias wins
+    assert _verb_stage(c, "start") == "In Progress"  # default
+    assert _verb_stage(c, "ship") == "Deployed"
+
+
 if __name__ == "__main__":
     test_lifecycle()
     test_unknown_stage_errors()
     test_labels_add_remove()
+    test_verb_stage()
     try:
         test_config_load()
     except ImportError:

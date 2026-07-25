@@ -55,6 +55,22 @@ def cmd_advance(a, ad, cfg):
     _emit(f"#{a.id} → {a.to}", a.json)
 
 
+_DEFAULT_STAGE = {"approve": "Approved", "start": "In Progress", "ship": "Deployed"}
+
+
+def _verb_stage(cfg, verb: str) -> str:
+    """Resolve a lifecycle verb to a board stage name (config alias or default)."""
+    return cfg.stages.get(verb, _DEFAULT_STAGE[verb])
+
+
+def _cmd_verb(verb: str):
+    def fn(a, ad, cfg):
+        st = _verb_stage(cfg, verb)
+        ad.set_stage(a.id, st)
+        _emit(f"#{a.id} → {st}", a.json)
+    return fn
+
+
 def cmd_comment(a, ad, cfg):
     body = a.body if a.body is not None else sys.stdin.read()
     ad.comment(a.id, body)
@@ -124,6 +140,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("--to", required=True)
     s.set_defaults(fn=cmd_advance)
+
+    for verb in ("approve", "start", "ship"):
+        s = sub.add_parser(verb, help=f"advance item to the '{verb}' stage (config alias)")
+        s.add_argument("id")
+        s.set_defaults(fn=_cmd_verb(verb))
 
     s = sub.add_parser("comment", help="comment on an item (body or stdin)")
     s.add_argument("id")
