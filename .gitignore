@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+.baton/cache.json
+dist/
+*.egg-info/
