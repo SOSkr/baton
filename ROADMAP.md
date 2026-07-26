@@ -44,7 +44,9 @@ Problema: ideas en Review que quedan obsoletas a medida que se hacen otras (supe
   - **refs colgantes/superadas**: el body referencia issues **cerrados** o decisiones **revisadas por una posterior** → probable superada. (Señal más fuerte vista en la sesión: "superada por decisión 05X / #NNN".)
   - **depende-de** un issue cerrado.
   El comando flag-ea candidatos (cheap); el **modelo revisa solo el subset flaggeado** (no las N). Captura la mayor parte de la señal de staleness.
-  - **Stamp de governance**: los cambios de estado del prune (cerrar/reclasificar) deben aplicar `config.stamp_label` (reusar los comandos ya stampeados `advance`/`close`), para que **también** queden flaggeados para revisión del usuario — igual que cualquier cambio del agente.
+  - **Label de review propio del prune**: prune aplica un label **específico** (`prune-review`, config `prune.review_label`) a los items que flag-ea/cierra — porque prune es **automático y de alto volumen**, ahí es donde el usuario necesita revisar cada decisión. **NO** se usa el `stamp_label` genérico para esto: los cambios **explícitos** del agente (approve/close tras discusión, donde el usuario está en el loop) **no** se flaggean; solo los de prune.
+
+> **Nota — `stamp_label` (feature genérica, off por defecto)**: existe un `config.stamp_label` opcional que, si se setea, hace que el CLI agregue ese label en new/advance/close (para quien quiera flaggear *todos* sus cambios). **PROJ NO lo usa** — decisión del usuario: el label es solo para prune (ver arriba), no para cambios explícitos.
 - **Tier 2 (richer — el "pre-compile" del usuario)**: al crear/revisar, guardar un **staleness fingerprint** por idea: `{assumptions clave, componentes/decisiones/files referenciados, depends-on, claim en 1 línea}`. El fingerprint es **estable** (describe la idea); la **realidad se mueve** (decisiones/código nuevos) → prune compara fingerprint vs realidad sin re-leer todo. Más inteligente, pero cuesta generar el fingerprint (una vez por idea, al intake). Hacerlo si el Tier 1 no alcanza.
 
 ## Notas de estado
