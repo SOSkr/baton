@@ -118,32 +118,32 @@ def test_verb_stage():
     assert _verb_stage(c, "ship") == "Deployed"
 
 
-def test_stamp_label():
+def test_backward_flag():
     import argparse
-    from baton.cli import _stamp, cmd_new, cmd_advance
+    from baton.cli import cmd_advance
     from baton.config import Config
+    # FakeAdapter.STAGES = ["Review","Approved","In Progress","Done"]
     a = FakeAdapter()
-    cfg = Config(backend="github", stamp_label="agent-changed")
-
-    # _stamp adds the governance label
+    cfg = Config(backend="github", review_label="revisar-cambio")
     it = a.create("x", "", [])
-    _stamp(a, cfg, it.id)
-    assert "agent-changed" in a.get(it.id).labels
+    a.set_stage(it.id, "Approved")
 
-    # cmd_new stamps on creation
-    ns = argparse.Namespace(title="y", body="", label=[], stage="Review", json=False)
-    cmd_new(ns, a, cfg)
-    created = [i for i in a.list() if i.title == "y"][0]
-    assert "agent-changed" in created.labels and created.stage == "Review"
+    # FORWARD (Approved→In Progress): NOT flagged
+    cmd_advance(argparse.Namespace(id=it.id, to="In Progress", json=False), a, cfg)
+    assert "revisar-cambio" not in a.get(it.id).labels
 
-    # cmd_advance stamps on state change
-    cmd_advance(argparse.Namespace(id=it.id, to="Approved", json=False), a, cfg)
-    assert "agent-changed" in a.get(it.id).labels  # still there, no dup crash
+    # BACKWARD (In Progress→Review): flagged
+    cmd_advance(argparse.Namespace(id=it.id, to="Review", json=False), a, cfg)
+    assert "revisar-cambio" in a.get(it.id).labels
 
-    # no stamp_label configured → no label added
+    # creation is NOT flagged (no stage yet / forward only)
+    assert "revisar-cambio" not in a.create("fresh", "", []).labels
+
+    # no review_label configured → never flags, even backward
     a2 = FakeAdapter()
-    it2 = a2.create("z", "", [])
-    _stamp(a2, Config(backend="github"), it2.id)
+    it2 = a2.create("y", "", [])
+    a2.set_stage(it2.id, "Approved")
+    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False), a2, Config(backend="github"))
     assert a2.get(it2.id).labels == []
 
 
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     test_unknown_stage_errors()
     test_labels_add_remove()
     test_verb_stage()
-    test_stamp_label()
+    test_backward_flag()
     try:
         test_config_load()
     except ImportError:

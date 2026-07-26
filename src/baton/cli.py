@@ -29,21 +29,23 @@ def _emit(obj, as_json: bool):
             print(obj)
 
 
-def _stamp(ad, cfg, item_id):
-    """Auto-add the governance label on agent-driven changes (config.stamp_label).
-    Never fails the underlying action if the label op errors."""
-    if cfg.stamp_label:
-        try:
-            ad.set_labels(item_id, add=[cfg.stamp_label])
-        except BatonError:
-            pass
+def _flag_backward(ad, cfg, item_id, prev_stage, target_stage):
+    """Flag an UNEXPECTED (backward) stage transition — e.g. Approved→Review — with
+    `config.review_label`, so the user evaluates it. Normal forward moves (Review→
+    Approved→In Progress→...) and creation are NOT flagged. Never fails the move."""
+    if not cfg.review_label or not prev_stage:
+        return
+    try:
+        order = [s.lower() for s in ad.list_stages()]
+        p, t = prev_stage.lower(), target_stage.lower()
+        if p in order and t in order and order.index(t) < order.index(p):
+            ad.set_labels(item_id, add=[cfg.review_label])
+    except BatonError:
+        pass
 
 
 def cmd_new(a, ad, cfg):
-    labels = list(a.label or [])
-    if cfg.stamp_label and cfg.stamp_label not in labels:
-        labels.append(cfg.stamp_label)
-    it = ad.create(a.title, a.body or "", labels)
+    it = ad.create(a.title, a.body or "", a.label or [])
     if a.stage:
         ad.set_stage(it.id, a.stage)
         it.stage = a.stage
@@ -64,8 +66,9 @@ def cmd_stages(a, ad, cfg):
 
 
 def cmd_advance(a, ad, cfg):
+    prev = ad.get(a.id).stage
     ad.set_stage(a.id, a.to)
-    _stamp(ad, cfg, a.id)
+    _flag_backward(ad, cfg, a.id, prev, a.to)
     _emit(f"#{a.id} → {a.to}", a.json)
 
 
@@ -80,8 +83,9 @@ def _verb_stage(cfg, verb: str) -> str:
 def _cmd_verb(verb: str):
     def fn(a, ad, cfg):
         st = _verb_stage(cfg, verb)
+        prev = ad.get(a.id).stage
         ad.set_stage(a.id, st)
-        _stamp(ad, cfg, a.id)
+        _flag_backward(ad, cfg, a.id, prev, st)
         _emit(f"#{a.id} → {st}", a.json)
     return fn
 
@@ -95,7 +99,6 @@ def cmd_comment(a, ad, cfg):
 def cmd_close(a, ad, cfg):
     if a.reason:
         ad.comment(a.id, a.reason)
-    _stamp(ad, cfg, a.id)
     ad.close(a.id, a.reason or "")
     _emit(f"closed #{a.id}", a.json)
 

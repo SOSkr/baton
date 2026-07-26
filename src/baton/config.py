@@ -20,7 +20,7 @@ class Config:
     target: dict = field(default_factory=dict)   # github: {repo, owner?, project?}
     labels: dict = field(default_factory=dict)   # {axes: [...]}
     stages: dict = field(default_factory=dict)   # verb->stage aliases: {approve: Approved, ...}
-    stamp_label: str | None = None               # label auto-added on create/state-change (governance)
+    review_label: str | None = None               # label applied on UNEXPECTED (backward) transitions
     path: Path | None = None                     # where it was loaded from
 
 
@@ -50,6 +50,6 @@ def load(start: Path | None = None) -> Config:
         target=data.get("target", {}) or {},
         labels=data.get("labels", {}) or {},
         stages=data.get("stages", {}) or {},
-        stamp_label=data.get("stamp_label"),
+        review_label=data.get("review_label"),
         path=p,
     )
