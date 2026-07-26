@@ -16,7 +16,7 @@ Estado a **2026-07-25**. Diseño completo en `P0-design.md`.
 | **P1** | ✅ | CLI `baton` + adapter GitHub con **discovery por nombre** (cero IDs hardcodeados) + ops. Verificado real contra PROJ Project #5. |
 | **P2** | ✅ | Portadas las 5 skills → llaman al CLI (sin GraphQL/IDs); juicio queda en la skill; PROJ-specifics opcionales/config. Verbos `approve/start/ship` config-driven. Write path verificado (#242 Review→Approved→Review). |
 | **P3** | ⬜ pendiente | Adapter **Plane** (`adapters/plane.py` implementando el contrato de `base.py`). CLI y skills **intactos**. Depende de confirmar Plane como tracker. |
-| **P4** | ⬜ pendiente | Empaquetar + publicar (plugin/repo) + **cutover**: crear repo `baton` en GitHub, migrar PROJ a `.baton/config.yaml`, linkear skills baton en los repos, archivar `agent-skills`. |
+| **P4** | 🟡 en curso | Empaquetar + publicar (plugin/repo) + **cutover**. Hecho: repo `SOSkr/baton` en GitHub (privado), PROJ ya usa `.baton/config.yaml`, skills baton linkeadas global. Falta: publicar (skills.sh/PyPI) + flip a público + archivar `agent-skills`. |
 
 ## Probar en PROJ (siguiente paso)
 
@@ -50,6 +50,6 @@ Problema: ideas en Review que quedan obsoletas a medida que se hacen otras (supe
 - **Tier 2 (richer — el "pre-compile" del usuario)**: al crear/revisar, guardar un **staleness fingerprint** por idea: `{assumptions clave, componentes/decisiones/files referenciados, depends-on, claim en 1 línea}`. El fingerprint es **estable** (describe la idea); la **realidad se mueve** (decisiones/código nuevos) → prune compara fingerprint vs realidad sin re-leer todo. Más inteligente, pero cuesta generar el fingerprint (una vez por idea, al intake). Hacerlo si el Tier 1 no alcanza.
 
 ## Notas de estado
-- Repo baton: local, sin remote todavía (crear en GitHub en P4 / cuando se quiera pushear).
+- Repo baton: **en GitHub `SOSkr/baton` (privado)** desde 2026-07-26; SOSkrAgent colaborador `write`. Flip a público al publicar (P4).
 - `agent-skills` sigue con las `idea-*` en vivo para PROJ — no tocar hasta el cutover.
 - P3 (Plane) sin arrancar: si PROJ migra a Plane (ver decisión de tracker pendiente), es el trigger.
