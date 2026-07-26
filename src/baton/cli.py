@@ -29,8 +29,21 @@ def _emit(obj, as_json: bool):
             print(obj)
 
 
+def _stamp(ad, cfg, item_id):
+    """Auto-add the governance label on agent-driven changes (config.stamp_label).
+    Never fails the underlying action if the label op errors."""
+    if cfg.stamp_label:
+        try:
+            ad.set_labels(item_id, add=[cfg.stamp_label])
+        except BatonError:
+            pass
+
+
 def cmd_new(a, ad, cfg):
-    it = ad.create(a.title, a.body or "", a.label or [])
+    labels = list(a.label or [])
+    if cfg.stamp_label and cfg.stamp_label not in labels:
+        labels.append(cfg.stamp_label)
+    it = ad.create(a.title, a.body or "", labels)
     if a.stage:
         ad.set_stage(it.id, a.stage)
         it.stage = a.stage
@@ -52,6 +65,7 @@ def cmd_stages(a, ad, cfg):
 
 def cmd_advance(a, ad, cfg):
     ad.set_stage(a.id, a.to)
+    _stamp(ad, cfg, a.id)
     _emit(f"#{a.id} → {a.to}", a.json)
 
 
@@ -67,6 +81,7 @@ def _cmd_verb(verb: str):
     def fn(a, ad, cfg):
         st = _verb_stage(cfg, verb)
         ad.set_stage(a.id, st)
+        _stamp(ad, cfg, a.id)
         _emit(f"#{a.id} → {st}", a.json)
     return fn
 
@@ -80,6 +95,7 @@ def cmd_comment(a, ad, cfg):
 def cmd_close(a, ad, cfg):
     if a.reason:
         ad.comment(a.id, a.reason)
+    _stamp(ad, cfg, a.id)
     ad.close(a.id, a.reason or "")
     _emit(f"closed #{a.id}", a.json)
 

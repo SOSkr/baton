@@ -118,11 +118,41 @@ def test_verb_stage():
     assert _verb_stage(c, "ship") == "Deployed"
 
 
+def test_stamp_label():
+    import argparse
+    from baton.cli import _stamp, cmd_new, cmd_advance
+    from baton.config import Config
+    a = FakeAdapter()
+    cfg = Config(backend="github", stamp_label="agent-changed")
+
+    # _stamp adds the governance label
+    it = a.create("x", "", [])
+    _stamp(a, cfg, it.id)
+    assert "agent-changed" in a.get(it.id).labels
+
+    # cmd_new stamps on creation
+    ns = argparse.Namespace(title="y", body="", label=[], stage="Review", json=False)
+    cmd_new(ns, a, cfg)
+    created = [i for i in a.list() if i.title == "y"][0]
+    assert "agent-changed" in created.labels and created.stage == "Review"
+
+    # cmd_advance stamps on state change
+    cmd_advance(argparse.Namespace(id=it.id, to="Approved", json=False), a, cfg)
+    assert "agent-changed" in a.get(it.id).labels  # still there, no dup crash
+
+    # no stamp_label configured → no label added
+    a2 = FakeAdapter()
+    it2 = a2.create("z", "", [])
+    _stamp(a2, Config(backend="github"), it2.id)
+    assert a2.get(it2.id).labels == []
+
+
 if __name__ == "__main__":
     test_lifecycle()
     test_unknown_stage_errors()
     test_labels_add_remove()
     test_verb_stage()
+    test_stamp_label()
     try:
         test_config_load()
     except ImportError:
