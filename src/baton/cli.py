@@ -12,7 +12,7 @@ import sys
 from . import __version__
 from .adapters import get_adapter
 from .base import BatonError, Item
-from .config import load
+from .config import load, load_project
 
 
 def _emit(obj, as_json: bool):
@@ -139,6 +139,10 @@ def cmd_doctor(a, ad, cfg):
         print(f"discovery OK — stages: {', '.join(stages) or '(none)'}")
         if cfg.stages:
             print(f"verb aliases: {cfg.stages}")
+        if cfg.memory:
+            print(f"memory project: {cfg.memory}")
+        if cfg.projects:
+            print(f"sibling projects: {', '.join(sorted(cfg.projects))}")
     except BatonError as e:
         print(f"discovery FAILED: {e}")
         return 1
@@ -148,6 +152,9 @@ def cmd_doctor(a, ad, cfg):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="baton", description="Work-item lifecycle over a board.")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("-p", "--project", metavar="NAME|PATH",
+                   help="operate on a sibling board instead of this one: a key of "
+                        "`projects` in the config, or a path to its config/dir")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("new", help="create an item")
@@ -212,6 +219,8 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         cfg = load()
+        if getattr(args, "project", None):
+            cfg = load_project(args.project, cfg)
         ad = get_adapter(cfg)
         rc = args.fn(args, ad, cfg)
         return rc or 0
