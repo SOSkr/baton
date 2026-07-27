@@ -10,5 +10,6 @@ def get_adapter(cfg: Config) -> Adapter:
         from .github import GitHubAdapter
         return GitHubAdapter(cfg.target)
     if cfg.backend == "plane":
-        raise BatonError("plane adapter not implemented yet (P3)")
+        from .plane import PlaneAdapter
+        return PlaneAdapter(cfg.target)
     raise BatonError(f"unknown backend {cfg.backend!r}")
