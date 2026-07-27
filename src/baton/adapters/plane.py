@@ -1,14 +1,14 @@
 """Plane adapter — direct REST calls (no CLI exists for Plane, unlike gh).
 
 Discovery resolves the project UUID from its readable identifier, and caches
-project states / labels (id<->name) so nothing is hardcoded. See P0-design.md §3.
+project states / labels (id<->name) so nothing is hardcoded.
 
 Config (config.target):
   base_url:  "https://plane.example.com"   # instance URL, self-hosted or api.plane.so (required)
-  workspace: "desarrollo"                   # workspace slug (required)
-  project:   "PROJ"                          # project identifier, the "PROJ" in PROJ-123 (required)
+  workspace: "my-workspace"                # workspace slug (required)
+  project:   "ENG"                         # project identifier, the "ENG" in ENG-123 (required)
 
-Auth: PLANE_API_KEY env var — never in config.yaml (see git-add-secrets-incident).
+Auth: PLANE_API_KEY env var — never in config.yaml.
 
 Endpoint paths and field names verified against the official SDK source
 (github.com/makeplane/plane-python-sdk, plane/api/*.py + plane/models/*.py) —

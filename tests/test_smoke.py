@@ -104,7 +104,7 @@ def test_config_load(tmp_path=None):
     d = Path(tempfile.mkdtemp())
     (d / ".baton").mkdir()
     (d / ".baton" / "config.yaml").write_text(yaml.safe_dump(
-        {"backend": "github", "target": {"repo": "SOSkr/proj-spec", "project": 5}}))
+        {"backend": "github", "target": {"repo": "owner/repo", "project": 5}}))
     cfg = load(start=d)
     assert cfg.backend == "github" and cfg.target["project"] == 5
 

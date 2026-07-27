@@ -1,7 +1,7 @@
 """GitHub Projects v2 adapter — shells to the authenticated `gh` CLI.
 
 Discovery resolves the project node id, the Status single-select field id, and
-its options (name->id) so nothing is hardcoded. See P0-design.md §3.
+its options (name->id) so nothing is hardcoded.
 
 Config (config.target):
   repo:    "OWNER/REPO"        # where issues live (required)

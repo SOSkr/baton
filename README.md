@@ -5,8 +5,6 @@ board's stages (triage → advance → ship) from the CLI or via Claude Code ski
 against **GitHub Projects** today and **Plane** (or others) tomorrow, without
 hardcoding a single project/field/option ID.
 
-> Successor to the PROJ `idea-*` skills, generalized. See `P0-design.md`.
-
 ## How it works
 
 Two layers:
@@ -26,8 +24,8 @@ baton/
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
 │   └── adapters/
 │       ├── github.py      # GitHub Projects v2 — shells to `gh`, GraphQL discovery
-│       └── plane.py       # Plane — REST directo (no CLI oficial), discovery vía API
-├── skills/                # baton-new/triage/approve/start/reject — el juicio, llaman al CLI
+│       └── plane.py       # Plane — direct REST (no official CLI), discovery via API
+├── skills/                # baton-new/triage/approve/start/reject — the judgment layer, calls the CLI
 └── tests/
 ```
 
@@ -58,9 +56,12 @@ stages:               # optional verb→stage aliases
   approve: Approved
   start: In Progress
   ship: Deployed
+review_label: needs-review   # optional — see below
 ```
 
 Everything else (project node id, Status field id, stage option ids) is **discovered**.
+
+`review_label` is applied only on **unexpected backward transitions** (e.g. `Approved → Review`), detected from the board's real stage order. Normal forward flow (new → review → approve → start → ship) is never flagged — that's the expected process. Backward moves get the label so a human can double-check what happened.
 
 ## Usage
 
@@ -96,10 +97,18 @@ $ baton show 42
 - `gh` CLI, authenticated, with `project` scope (GitHub backend).
 - Python ≥ 3.11. Run with `uv run baton ...` or `pipx install .`.
 
+## Roadmap
+
+- **`baton search`** — embeddings-based retrieval, gated on scale (hundreds+ items
+  cross-project). Not needed while `list --label/--stage` + backend full-text
+  search covers it.
+- **`baton prune`** — flag stale items (old + referencing closed/superseded
+  issues) for review, cheaply, before a model looks at the flagged subset.
+
 ## Status
 
-P1-P3 done: GitHub adapter, Plane adapter, discovery, core CLI — both verified live.
-Packaging/publish (P4) pending. See `P0-design.md`.
+GitHub and Plane adapters done, both verified live. Packaging/publish
+(PyPI/skills registry) pending.
 
 ## License
 

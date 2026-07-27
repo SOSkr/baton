@@ -35,10 +35,10 @@ class FakePlane:
     def request(self, method, path, body=None, params=None):
         parts = path.strip("/").split("/")
         ws, rest = parts[0], parts[1:]
-        assert ws == "desarrollo"
+        assert ws == "acme"
 
         if rest == ["projects"] and method == "GET":
-            return {"results": [{"id": "proj-1", "identifier": "PROJ"}]}
+            return {"results": [{"id": "proj-1", "identifier": "ENG"}]}
 
         assert rest[0] == "projects" and rest[1] == "proj-1"
         rest = rest[2:]
@@ -81,8 +81,8 @@ class FakePlane:
 
 
 def make_adapter():
-    ad = PlaneAdapter({"base_url": "http://plane.local", "workspace": "desarrollo",
-                       "project": "PROJ"})
+    ad = PlaneAdapter({"base_url": "http://plane.local", "workspace": "acme",
+                       "project": "ENG"})
     fake = FakePlane()
     ad._request = lambda method, path, body=None, params=None: fake.request(
         method, path, body, params)

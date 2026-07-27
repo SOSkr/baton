@@ -2,7 +2,7 @@
 
 An adapter maps baton's generic work-item lifecycle onto a concrete board
 backend (GitHub Projects, Plane, ...). Everything is by NAME — discovery
-resolves internal IDs. See P0-design.md §2/§3.
+resolves internal IDs.
 """
 from __future__ import annotations
 

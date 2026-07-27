@@ -1,7 +1,6 @@
 """baton config loading. Looks for .baton/config.yaml walking up from cwd.
 
 Minimal by design — everything not here is discovered by the adapter.
-See P0-design.md §4.
 """
 from __future__ import annotations
 
@@ -39,7 +38,7 @@ def load(start: Path | None = None) -> Config:
     if p is None:
         raise BatonError(
             "no .baton/config.yaml found (walked up from cwd). "
-            "Create one — see `baton doctor` / P0-design.md §4."
+            "Create one — see README.md § Config."
         )
     data = yaml.safe_load(p.read_text()) or {}
     backend = data.get("backend")
