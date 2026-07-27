@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from baton.base import Adapter, BatonError, Item  # noqa: E402
+from baton.base import Adapter, BatonError, Comment, Item  # noqa: E402
 
 
 class FakeAdapter(Adapter):
@@ -17,7 +17,7 @@ class FakeAdapter(Adapter):
     def __init__(self):
         self._items: dict[str, Item] = {}
         self._n = 0
-        self.comments: list[tuple[str, str]] = []
+        self._comments: list[tuple[str, str]] = []
 
     def list_stages(self): return list(self.STAGES)
 
@@ -42,7 +42,10 @@ class FakeAdapter(Adapter):
             out.append(it)
         return out
 
-    def comment(self, item_id, text): self.comments.append((item_id, text))
+    def comment(self, item_id, text): self._comments.append((item_id, text))
+
+    def comments(self, item_id):
+        return [Comment(body=t) for i, t in self._comments if i == item_id]
 
     def set_stage(self, item_id, stage):
         if stage.lower() not in [s.lower() for s in self.STAGES]:
@@ -72,7 +75,9 @@ def test_lifecycle():
     assert a.list(stage="Review") == []
 
     a.comment("1", "looks good")
-    assert a.comments == [("1", "looks good")]
+    assert a._comments == [("1", "looks good")]
+    assert [c.body for c in a.comments("1")] == ["looks good"]
+    assert a.comments("2") == []
 
     a.close("1", "superseded")
     assert a.get("1").state == "closed"

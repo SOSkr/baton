@@ -53,7 +53,22 @@ def cmd_new(a, ad, cfg):
 
 
 def cmd_show(a, ad, cfg):
-    _emit(ad.get(a.id), a.json)
+    it = ad.get(a.id)
+    if not a.comments:
+        _emit(it, a.json)
+        return
+    cs = ad.comments(a.id)
+    if a.json:
+        _emit({"item": it, "comments": cs}, True)
+        return
+    _emit(it, False)
+    if not cs:
+        print("  (no comments)")
+    for c in cs:
+        head = " · ".join(p for p in (c.author, c.created_at) if p)
+        print(f"\n  --- {head or 'comment'}")
+        for line in c.body.splitlines():
+            print(f"  {line}")
 
 
 def cmd_list(a, ad, cfg):
@@ -144,6 +159,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("show", help="show an item")
     s.add_argument("id")
+    s.add_argument("-c", "--comments", action="store_true",
+                   help="include the comment trail (what other agents/people did)")
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("list", help="list items")

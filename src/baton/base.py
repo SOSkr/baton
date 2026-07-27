@@ -22,6 +22,15 @@ class Item:
     body: str = ""
 
 
+@dataclass
+class Comment:
+    """A comment on a work-item. The trail of how the item got where it is —
+    what other agents/people did, decided or hit."""
+    body: str
+    author: str = ""             # login/id when the backend gives one, else ""
+    created_at: str = ""         # ISO-8601 as the backend reports it
+
+
 class Adapter(ABC):
     """Every backend implements this. Stages are referenced by NAME."""
 
@@ -48,6 +57,11 @@ class Adapter(ABC):
     @abstractmethod
     def comment(self, item_id: str, text: str) -> None:
         ...
+
+    @abstractmethod
+    def comments(self, item_id: str) -> list[Comment]:
+        """Existing comments, oldest first. Writing a comment nobody can read
+        back is half a channel — this is the other half."""
 
     @abstractmethod
     def set_stage(self, item_id: str, stage: str) -> None:
