@@ -57,6 +57,10 @@ stages:               # optional verb→stage aliases
   start: In Progress
   ship: Deployed
 review_label: needs-review   # optional — see below
+
+memory: app-a         # optional — this project's name in your session-memory store
+projects:             # optional — sibling boards you can query with --project
+  b: ../app-b         # relative to the PROJECT root (the dir holding .baton/)
 ```
 
 Everything else (project node id, Status field id, stage option ids) is **discovered**.
@@ -71,6 +75,7 @@ baton stages                        # the board's stages
 baton new --title "Add dark mode" --label type:idea --stage Review
 baton show 42
 baton show 42 --comments             # + the comment trail (what others did)
+baton --project b list --state all   # a sibling board, without cd-ing into it
 baton list --stage Approved
 baton advance 42 --to Approved
 baton comment 42 --body "looks good"
