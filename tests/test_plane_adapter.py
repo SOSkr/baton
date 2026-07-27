@@ -73,9 +73,17 @@ class FakePlane:
                 if method == "PATCH":
                     self.items[uid].update(body)
                     return self.items[uid]
-            if rest[2:] == ["comments"] and method == "POST":
-                self.items[uid].setdefault("comments", []).append(body["comment_html"])
-                return {"id": "c-1", **body}
+            if rest[2:] == ["comments"]:
+                if method == "POST":
+                    self.items[uid].setdefault("comments", []).append(
+                        {"id": f"c-{len(self.items[uid].get('comments', [])) + 1}",
+                         "comment_html": body["comment_html"],
+                         "actor": "u-1",
+                         "created_at": f"2026-07-27T1{len(self.items[uid].get('comments', []))}:00:00Z"})
+                    return self.items[uid]["comments"][-1]
+                if method == "GET":
+                    # Plane returns newest-first; the adapter must sort.
+                    return {"results": list(reversed(self.items[uid].get("comments", [])))}
 
         raise AssertionError(f"unhandled fake request: {method} {path} body={body}")
 
@@ -102,7 +110,7 @@ def test_discovery_and_lifecycle():
     assert ad.get("1").state == "open"
 
     ad.comment("1", "looks good")
-    assert fake.items["w-1"]["comments"] == ["<p>looks good</p>"]
+    assert [c["comment_html"] for c in fake.items["w-1"]["comments"]] == ["<p>looks good</p>"]
 
     ad.set_labels("1", add=["priority:high"], remove=["type:idea"])
     assert ad.get("1").labels == ["priority:high"]
@@ -144,9 +152,36 @@ def test_unknown_issue_errors():
         pass
 
 
+def test_comments_roundtrip_and_order():
+    ad, fake = make_adapter()
+    ad.create("Add dark mode", "<p>body</p>", [])
+    assert ad.comments("1") == []
+
+    ad.comment("1", "engine listo, PR #12")
+    ad.comment("1", "platform pendiente")
+
+    cs = ad.comments("1")
+    # oldest first, even though the backend hands them back newest-first
+    assert [c.body for c in cs] == ["engine listo, PR #12", "platform pendiente"]
+    assert cs[0].author == "u-1" and cs[0].created_at < cs[1].created_at
+
+
+def test_comment_html_is_stripped():
+    ad, fake = make_adapter()
+    ad.create("x", "", [])
+    fake.items["w-1"]["comments"] = [
+        {"comment_html": "<p>l&iacute;nea 1</p><p>l&iacute;nea 2</p>",
+         "actor": "u-2", "created_at": "2026-07-27T10:00:00Z"}]
+    body = ad.comments("1")[0].body
+    assert "<p>" not in body and "&iacute;" not in body
+    assert "línea 1" in body and "línea 2" in body
+
+
 if __name__ == "__main__":
     test_discovery_and_lifecycle()
     test_list_filters_by_stage_and_state()
     test_unknown_stage_errors()
     test_unknown_issue_errors()
+    test_comments_roundtrip_and_order()
+    test_comment_html_is_stripped()
     print("ok")

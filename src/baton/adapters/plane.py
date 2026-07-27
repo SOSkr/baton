@@ -16,13 +16,24 @@ not scraped docs, which disagreed with each other on issues/ vs work-items/.
 """
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from ..base import Adapter, BatonError, Item
+from ..base import Adapter, BatonError, Comment, Item
+
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _strip_html(s: str) -> str:
+    """Plane stores comments as HTML. Only used as a fallback when the API
+    doesn't return `comment_stripped`. ponytail: regex, not a parser — these
+    are agent-written comments, not arbitrary documents."""
+    return html.unescape(_TAG.sub("", s.replace("</p>", "\n").replace("<br>", "\n")))
 
 # Plane's State.group values (plane/models/enums.py GroupEnum). "closed" for
 # baton's open/closed Item.state means the board considers the work done or
@@ -179,6 +190,20 @@ class PlaneAdapter(Adapter):
         self._request("POST",
                        f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/comments/",
                        {"comment_html": f"<p>{text}</p>"})
+
+    def comments(self, item_id: str) -> list[Comment]:
+        uuid = self._issue_uuid(item_id)
+        j = self._request("GET",
+                           f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/comments/",
+                           params={"per_page": 100})
+        rows = j.get("results", []) if isinstance(j, dict) else (j or [])
+        out = [Comment(body=(r.get("comment_stripped")
+                             or _strip_html(r.get("comment_html") or "")).strip(),
+                       author=str(r.get("actor") or ""),
+                       created_at=r.get("created_at") or "")
+               for r in rows]
+        out.sort(key=lambda c: c.created_at)
+        return out
 
     def set_stage(self, item_id: str, stage: str) -> None:
         st = self._state_by_name(stage)

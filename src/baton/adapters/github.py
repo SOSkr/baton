@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-from ..base import Adapter, BatonError, Item
+from ..base import Adapter, BatonError, Comment, Item
 
 
 def _gh(*args: str, want_json: bool = False):
@@ -160,6 +160,14 @@ class GitHubAdapter(Adapter):
 
     def comment(self, item_id: str, text: str) -> None:
         _gh("issue", "comment", item_id, "--repo", self.repo, "--body", text)
+
+    def comments(self, item_id: str) -> list[Comment]:
+        j = _gh("issue", "view", item_id, "--repo", self.repo,
+                "--json", "comments", want_json=True) or {}
+        return [Comment(body=(c.get("body") or "").strip(),
+                        author=(c.get("author") or {}).get("login", ""),
+                        created_at=c.get("createdAt") or "")
+                for c in j.get("comments", [])]
 
     def set_stage(self, item_id: str, stage: str) -> None:
         d = self._discover()

@@ -70,6 +70,7 @@ baton doctor                        # validate config + backend discovery
 baton stages                        # the board's stages
 baton new --title "Add dark mode" --label type:idea --stage Review
 baton show 42
+baton show 42 --comments             # + the comment trail (what others did)
 baton list --stage Approved
 baton advance 42 --to Approved
 baton comment 42 --body "looks good"
@@ -90,7 +91,21 @@ $ baton show 42
 #42 [Approved] Add dark mode
   https://github.com/OWNER/REPO/issues/42
   labels: type:idea, priority:medium
+
+$ baton show 42 --comments
+#42 [Approved] Add dark mode
+  https://github.com/OWNER/REPO/issues/42
+  labels: type:idea, priority:medium
+
+  --- alice · 2026-07-27T10:04:11Z
+  backend side landed in #51, toggle persists per user
+
+  --- bob · 2026-07-27T14:22:03Z
+  frontend still pending: the theme switcher flashes on first paint
 ```
+
+`--comments` is what makes the item a shared channel: several people or agents
+working the same item can read what the others already did instead of asking.
 
 ## Requirements
 
