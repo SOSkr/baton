@@ -1,5 +1,7 @@
 # Baton
 
+[![skills.sh](https://skills.sh/b/SOSkr/baton)](https://skills.sh/SOSkr/baton)
+
 Work-item lifecycle over a board — **backend-agnostic**. Move items through your
 board's stages (triage → advance → ship) from the CLI or via Claude Code skills,
 against **GitHub Projects** today and **Plane** (or others) tomorrow, without
@@ -25,14 +27,16 @@ baton/
 │   └── adapters/
 │       ├── github.py      # GitHub Projects v2 — shells to `gh`, GraphQL discovery
 │       └── plane.py       # Plane — direct REST (no official CLI), discovery via API
-├── skills/                # baton-new/triage/approve/start/reject — the judgment layer, calls the CLI
+├── skills/                # the judgment layer (new/triage/approve/start/ship/reject/catch-up), calls the CLI
+├── commands/              # slash triggers for agents that use them (OpenCode)
+├── hooks/                 # optional: post the PR link to the item without being asked
 └── tests/
 ```
 
 ## Skills
 
 The judgment layer — each wraps the CLI with a lifecycle verb. Install by
-symlinking `skills/baton-*` into your project's `.claude/skills/`.
+symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 
 | Skill | Description |
 |---|---|
@@ -40,7 +44,9 @@ symlinking `skills/baton-*` into your project's `.claude/skills/`.
 | [`baton-triage`](skills/baton-triage/SKILL.md) | Review a work-item for viability/value/fit; scores it and posts the verdict. Doesn't change the stage. |
 | [`baton-approve`](skills/baton-approve/SKILL.md) | Approve a triaged work-item: advance it to the board's approved stage. |
 | [`baton-start`](skills/baton-start/SKILL.md) | Start implementation of an approved item: advance to In Progress, create the feature branch, drive it to Done/Shipped. |
+| [`baton-ship`](skills/baton-ship/SKILL.md) | Take the integration branch to production and close the items that went out — PR, checks, merge, deploy verification. |
 | [`baton-reject`](skills/baton-reject/SKILL.md) | Reject a work-item: close it with a reason comment. |
+| [`baton-catch-up`](skills/baton-catch-up/SKILL.md) | Recover what already happened — on an item, or in another project you own — before asking anyone. |
 
 ## Config
 
@@ -111,6 +117,54 @@ $ baton show 42 --comments
 
 `--comments` is what makes the item a shared channel: several people or agents
 working the same item can read what the others already did instead of asking.
+
+## Setup for AI agents
+
+### Claude Code
+
+Symlink skills into `~/.claude/skills/`:
+
+```bash
+ln -sf $PWD/skills/baton-* ~/.claude/skills/
+```
+
+Optionally install the [hooks](hooks/README.md) so the PR link reaches the item on
+its own, instead of depending on the agent remembering.
+
+### OpenCode
+
+Symlink skills **and** commands:
+
+```bash
+# skills (procedural knowledge injected into system prompt)
+ln -sf $PWD/skills/baton-* ~/.claude/skills/
+
+# commands (/baton-new, /baton-start, /baton-ship, /baton-catch-up… — slash triggers in TUI)
+ln -sf $PWD/commands/baton-* ~/.config/opencode/commands/
+```
+
+Plane MCP (optional — for direct Plane API access from the agent):
+
+```json
+// in ~/.config/opencode/opencode.json → "mcp"
+"plane-mcp": {
+  "type": "local",
+  "command": ["npx", "-y", "@makeplane/plane-mcp-server"],
+  "enabled": true,
+  "environment": {
+    "PLANE_API_KEY": "<your-plane-api-key>",
+    "PLANE_API_HOST_URL": "<https://your-plane-instance>"
+  }
+}
+```
+
+### skills.sh (future)
+
+```bash
+npx skills add SOSkr/baton
+```
+
+Repo includes `skills.sh.json` for display grouping; `skills/` matches the expected layout.
 
 ## Requirements
 

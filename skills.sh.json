@@ -1,0 +1,25 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Workflow",
+      "description": "Core lifecycle verbs for work-item management.",
+      "skills": [
+        "baton-new",
+        "baton-triage",
+        "baton-approve",
+        "baton-start",
+        "baton-ship",
+        "baton-reject"
+      ]
+    },
+    {
+      "title": "Context",
+      "description": "Recover what other people, agents or sessions already did.",
+      "skills": [
+        "baton-catch-up"
+      ]
+    }
+  ]
+}

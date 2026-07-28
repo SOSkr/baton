@@ -1,6 +1,8 @@
 ---
 name: baton-ship
 description: Ship what is on the integration branch to production and close the loop on every work-item that went out. Use when the user says "release", "ship it", "deploy to production", "crear release", "llevar develop a producción".
+license: MIT
+compatibility: requires Python 3.11+, baton CLI (pipx install baton)
 ---
 
 # baton-ship

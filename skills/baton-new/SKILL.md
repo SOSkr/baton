@@ -4,6 +4,8 @@ description: >
   Discuss and register a new work-item on the board via `baton new`. Use when the
   user says "new item/idea/ticket", "nueva idea", "file X", "register X", or wants
   to formalize a concept into a tracked issue.
+license: MIT
+compatibility: requires Python 3.11+, baton CLI (pipx install baton)
 ---
 
 # baton new
