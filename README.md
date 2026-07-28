@@ -27,14 +27,16 @@ baton/
 │   └── adapters/
 │       ├── github.py      # GitHub Projects v2 — shells to `gh`, GraphQL discovery
 │       └── plane.py       # Plane — direct REST (no official CLI), discovery via API
-├── skills/                # baton-new/triage/approve/start/reject — the judgment layer, calls the CLI
+├── skills/                # the judgment layer (new/triage/approve/start/ship/reject/catch-up), calls the CLI
+├── commands/              # slash triggers for agents that use them (OpenCode)
+├── hooks/                 # optional: post the PR link to the item without being asked
 └── tests/
 ```
 
 ## Skills
 
 The judgment layer — each wraps the CLI with a lifecycle verb. Install by
-symlinking `skills/baton-*` into your project's `.claude/skills/`.
+symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 
 | Skill | Description |
 |---|---|
@@ -42,7 +44,9 @@ symlinking `skills/baton-*` into your project's `.claude/skills/`.
 | [`baton-triage`](skills/baton-triage/SKILL.md) | Review a work-item for viability/value/fit; scores it and posts the verdict. Doesn't change the stage. |
 | [`baton-approve`](skills/baton-approve/SKILL.md) | Approve a triaged work-item: advance it to the board's approved stage. |
 | [`baton-start`](skills/baton-start/SKILL.md) | Start implementation of an approved item: advance to In Progress, create the feature branch, drive it to Done/Shipped. |
+| [`baton-ship`](skills/baton-ship/SKILL.md) | Take the integration branch to production and close the items that went out — PR, checks, merge, deploy verification. |
 | [`baton-reject`](skills/baton-reject/SKILL.md) | Reject a work-item: close it with a reason comment. |
+| [`baton-catch-up`](skills/baton-catch-up/SKILL.md) | Recover what already happened — on an item, or in another project you own — before asking anyone. |
 
 ## Config
 
@@ -135,7 +139,7 @@ Symlink skills **and** commands:
 # skills (procedural knowledge injected into system prompt)
 ln -sf $PWD/skills/baton-* ~/.claude/skills/
 
-# commands (/baton-new, /baton-triage, etc. — slash triggers in TUI)
+# commands (/baton-new, /baton-start, /baton-ship, /baton-catch-up… — slash triggers in TUI)
 ln -sf $PWD/commands/baton-* ~/.config/opencode/commands/
 ```
 
