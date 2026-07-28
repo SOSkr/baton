@@ -25,16 +25,31 @@ id=$(printf '%s' "$branch" | sed -nE 's#^(feature|bugfix|hotfix|chore|fix)/([0-9
 url=$(printf '%s' "$payload" | jq -r '.tool_response.stdout // ""' 2>/dev/null \
       | grep -oE 'https://[^[:space:]]+/pull/[0-9]+' | head -1)
 
-jq -n --arg id "$id" --arg branch "$branch" --arg url "$url" '
+# No baton, no board reachable, or no such item -> nothing to comment on. Stay quiet:
+# this hook runs in every repo, most of which have no board.
+command -v baton >/dev/null 2>&1 || exit 0
+existing=$(cd "$cwd" && baton show "$id" --comments 2>/dev/null) || exit 0
+
+# The PR link is the one fact the board cannot derive on its own — a board on one
+# host knows nothing about a repo on another. Post it; leave the WHY to the agent.
+posted=""
+if [ -n "$url" ] && ! printf '%s' "$existing" | grep -qF "$url"; then
+    if (cd "$cwd" && baton comment "$id" --body "PR opened from \`$branch\` → $url") >/dev/null 2>&1; then
+        posted=1
+    fi
+fi
+
+jq -n --arg id "$id" --arg branch "$branch" --arg url "$url" --arg posted "$posted" '
 {
   hookSpecificOutput: {
     hookEventName: "PostToolUse",
     additionalContext: (
       "A PR was created from branch `" + $branch + "` (work-item #" + $id + ")."
       + (if $url != "" then " PR: " + $url else "" end)
-      + " Comment on the item so whoever comes next knows what happened:\n"
-      + "  baton comment " + $id + " --body \"<what it does> · PR " + (if $url != "" then $url else "<url>" end) + " · <what is still open>\"\n"
-      + "Keep it short: what it does, which PR, what is still open. Check `baton show " + $id + " --comments` first — do not repeat what is already there."
+      + (if $posted != "" then " The link was posted to the item automatically." else "" end)
+      + " Add the part a script cannot write — what it does, what is still open, what blocked you:\n"
+      + "  baton comment " + $id + " --body \"<what it does> · <what is still open>\"\n"
+      + "Keep it short. `baton show " + $id + " --comments` shows what is already there — do not repeat it."
     )
   }
 }'
