@@ -2,9 +2,9 @@ name: tests
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
   pull_request:
-    branches: [master]
+    branches: [master, develop]
 
 jobs:
   test:
@@ -17,3 +17,4 @@ jobs:
       - run: pip install pyyaml
       - run: python tests/test_smoke.py
       - run: python tests/test_plane_adapter.py
+      - run: python tests/test_config.py
