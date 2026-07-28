@@ -20,7 +20,13 @@ Fires after a `gh pr create`, when the current branch follows baton's convention
 
 Silent otherwise: wrong command, a branch with no item id, no `baton` on PATH, or a
 board that does not answer (most repos have no board — it must not break them).
+It also stays out of the way when the PR is about a **different** branch — an
+explicit `--head` that is not the one you are on, which is what a release PR looks
+like (`--base master --head develop`). Those bundle many items, so pinning their
+link to whichever item branch you happen to be standing on would be a lie.
 Failures are swallowed; the hook never fails your turn.
+
+Checks: `bash hooks/test-pr-comment-reminder.sh` (no network, stubbed `baton`).
 
 Give it a `timeout` of ~20s: it makes up to two board calls, which cross the network
 for a hosted backend.
