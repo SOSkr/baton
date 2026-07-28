@@ -1,5 +1,7 @@
 # Baton
 
+[![skills.sh](https://skills.sh/b/SOSkr/baton)](https://skills.sh/SOSkr/baton)
+
 Work-item lifecycle over a board — **backend-agnostic**. Move items through your
 board's stages (triage → advance → ship) from the CLI or via Claude Code skills,
 against **GitHub Projects** today and **Plane** (or others) tomorrow, without
@@ -91,6 +93,51 @@ $ baton show 42
   https://github.com/OWNER/REPO/issues/42
   labels: type:idea, priority:medium
 ```
+
+## Setup for AI agents
+
+### Claude Code
+
+Symlink skills into `~/.claude/skills/`:
+
+```bash
+ln -sf $PWD/skills/baton-* ~/.claude/skills/
+```
+
+### OpenCode
+
+Symlink skills **and** commands:
+
+```bash
+# skills (procedural knowledge injected into system prompt)
+ln -sf $PWD/skills/baton-* ~/.claude/skills/
+
+# commands (/baton-new, /baton-triage, etc. — slash triggers in TUI)
+ln -sf $PWD/commands/baton-* ~/.config/opencode/commands/
+```
+
+Plane MCP (optional — for direct Plane API access from the agent):
+
+```json
+// in ~/.config/opencode/opencode.json → "mcp"
+"plane-mcp": {
+  "type": "local",
+  "command": ["npx", "-y", "@makeplane/plane-mcp-server"],
+  "enabled": true,
+  "environment": {
+    "PLANE_API_KEY": "<your-plane-api-key>",
+    "PLANE_API_HOST_URL": "<https://your-plane-instance>"
+  }
+}
+```
+
+### skills.sh (future)
+
+```bash
+npx skills add SOSkr/baton
+```
+
+Repo includes `skills.sh.json` for display grouping; `skills/` matches the expected layout.
 
 ## Requirements
 

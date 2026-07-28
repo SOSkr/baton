@@ -3,6 +3,8 @@ name: baton-reject
 description: >
   Reject a work-item: close it with a reason comment. Use when the user says
   "reject X", "rechazar idea", or decides an item won't move forward.
+license: MIT
+compatibility: requires Python 3.11+, baton CLI (pipx install baton)
 ---
 
 # baton reject

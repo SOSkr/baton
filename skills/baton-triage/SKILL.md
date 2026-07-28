@@ -4,6 +4,8 @@ description: >
   Review/triage a work-item for viability, value, and fit; score it and post the
   verdict. Use when the user says "triage X", "review idea/item", "evaluate X",
   "revisar idea". Does not change the stage — records the assessment.
+license: MIT
+compatibility: requires Python 3.11+, baton CLI (pipx install baton)
 ---
 
 # baton triage
