@@ -60,9 +60,12 @@ baton ship <id>
 baton close <id> --reason "Shipped in <tag>"
 ```
 
-Repeat per item. Names of stages come from `.baton/config.yaml` (`stages.ship`);
-check with `baton stages` if unsure. Never hardcode board or field ids here —
-that is exactly what the CLI exists to absorb.
+Repeat per item. `--reason` posts as a comment, so name the tag or build — that is
+what someone reads months later when asking *when did this actually go out*.
+
+Names of stages come from `.baton/config.yaml` (`stages.ship`); check with
+`baton stages` if unsure. Never hardcode board or field ids here — that is exactly
+what the CLI exists to absorb.
 
 ## Multi-part items
 
