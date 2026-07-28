@@ -59,6 +59,10 @@ stages:               # optional verb→stage aliases
   start: In Progress
   ship: Deployed
 review_label: needs-review   # optional — see below
+
+memory: app-a         # optional — this project's name in your session-memory store
+projects:             # optional — sibling boards you can query with --project
+  b: ../app-b         # relative to the PROJECT root (the dir holding .baton/)
 ```
 
 Everything else (project node id, Status field id, stage option ids) is **discovered**.
@@ -72,6 +76,8 @@ baton doctor                        # validate config + backend discovery
 baton stages                        # the board's stages
 baton new --title "Add dark mode" --label type:idea --stage Review
 baton show 42
+baton show 42 --comments             # + the comment trail (what others did)
+baton --project b list --state all   # a sibling board, without cd-ing into it
 baton list --stage Approved
 baton advance 42 --to Approved
 baton comment 42 --body "looks good"
@@ -92,7 +98,21 @@ $ baton show 42
 #42 [Approved] Add dark mode
   https://github.com/OWNER/REPO/issues/42
   labels: type:idea, priority:medium
+
+$ baton show 42 --comments
+#42 [Approved] Add dark mode
+  https://github.com/OWNER/REPO/issues/42
+  labels: type:idea, priority:medium
+
+  --- alice · 2026-07-27T10:04:11Z
+  backend side landed in #51, toggle persists per user
+
+  --- bob · 2026-07-27T14:22:03Z
+  frontend still pending: the theme switcher flashes on first paint
 ```
+
+`--comments` is what makes the item a shared channel: several people or agents
+working the same item can read what the others already did instead of asking.
 
 ## Setup for AI agents
 
@@ -103,6 +123,9 @@ Symlink skills into `~/.claude/skills/`:
 ```bash
 ln -sf $PWD/skills/baton-* ~/.claude/skills/
 ```
+
+Optionally install the [hooks](hooks/README.md) so the PR link reaches the item on
+its own, instead of depending on the agent remembering.
 
 ### OpenCode
 

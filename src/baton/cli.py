@@ -12,7 +12,7 @@ import sys
 from . import __version__
 from .adapters import get_adapter
 from .base import BatonError, Item
-from .config import load
+from .config import load, load_project
 
 
 def _emit(obj, as_json: bool):
@@ -53,7 +53,22 @@ def cmd_new(a, ad, cfg):
 
 
 def cmd_show(a, ad, cfg):
-    _emit(ad.get(a.id), a.json)
+    it = ad.get(a.id)
+    if not a.comments:
+        _emit(it, a.json)
+        return
+    cs = ad.comments(a.id)
+    if a.json:
+        _emit({"item": it, "comments": cs}, True)
+        return
+    _emit(it, False)
+    if not cs:
+        print("  (no comments)")
+    for c in cs:
+        head = " · ".join(p for p in (c.author, c.created_at) if p)
+        print(f"\n  --- {head or 'comment'}")
+        for line in c.body.splitlines():
+            print(f"  {line}")
 
 
 def cmd_list(a, ad, cfg):
@@ -124,6 +139,10 @@ def cmd_doctor(a, ad, cfg):
         print(f"discovery OK — stages: {', '.join(stages) or '(none)'}")
         if cfg.stages:
             print(f"verb aliases: {cfg.stages}")
+        if cfg.memory:
+            print(f"memory project: {cfg.memory}")
+        if cfg.projects:
+            print(f"sibling projects: {', '.join(sorted(cfg.projects))}")
     except BatonError as e:
         print(f"discovery FAILED: {e}")
         return 1
@@ -133,6 +152,9 @@ def cmd_doctor(a, ad, cfg):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="baton", description="Work-item lifecycle over a board.")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("-p", "--project", metavar="NAME|PATH",
+                   help="operate on a sibling board instead of this one: a key of "
+                        "`projects` in the config, or a path to its config/dir")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("new", help="create an item")
@@ -144,6 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("show", help="show an item")
     s.add_argument("id")
+    s.add_argument("-c", "--comments", action="store_true",
+                   help="include the comment trail (what other agents/people did)")
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("list", help="list items")
@@ -195,6 +219,8 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         cfg = load()
+        if getattr(args, "project", None):
+            cfg = load_project(args.project, cfg)
         ad = get_adapter(cfg)
         rc = args.fn(args, ad, cfg)
         return rc or 0

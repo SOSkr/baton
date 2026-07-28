@@ -29,6 +29,29 @@ stage; the code lives in the target repo (which may differ from where the item l
   auto-close on merge).
 - Update any linked doc alongside the code.
 
+### Leave a trail on the item
+
+Whoever picks this up next — another person, another agent, you in two weeks — can
+read the board but not your session. **Comment at these three points, and only
+these**: commits are too frequent to be worth reporting, and git already has them.
+
+| When | What to write |
+|---|---|
+| PR opened | what it does, the PR link, what is still open |
+| Blocked | what blocks it and who/what it waits on — the most valuable comment there is |
+| Your part done (multi-part item) | what landed, what the next part needs to know |
+
+```bash
+baton comment <id> --body "Engine listo: endpoints del recorder + drift-check en CI.
+PR https://github.com/acme/app/pull/77 · falta el consumidor en la app web."
+```
+
+Three lines beat thirty. Write what someone would otherwise have to **ask you** —
+decisions taken, paths rejected and why, the surprise you hit. Not a changelog:
+`baton-catch-up` cross-checks against `git log` for the facts.
+
+Before writing, `baton show <id> --comments` — if it is already said, don't repeat it.
+
 ## Finish
 - On merge to the integration branch: `baton advance <id> --to Done` (or your board's
   done stage).
