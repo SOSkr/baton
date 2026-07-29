@@ -19,6 +19,26 @@ class GitHubRepo:
             raise BatonError("GitHubRepo needs a repo, 'OWNER/REPO'")
         self.repo = repo
 
+    def branch_protection(self, branches: list[str]) -> dict[str, str]:
+        """State of each branch: `protected`, `UNPROTECTED`, or `missing`.
+
+        Deliberately separate from `probe()`: protection is a property of the REPO,
+        not of a credential, so reporting it once per token role would be noise.
+
+        `.protected` comes back on the plain branch endpoint, which needs no admin —
+        reading the protection *rules* does, but reading whether any exist does not.
+        That matters: the agent credential can surface a hole it cannot fix.
+        """
+        out: dict[str, str] = {}
+        for br in dict.fromkeys(branches):          # dedupe, keep order (trunk-based)
+            try:
+                p = gh("api", f"repos/{self.repo}/branches/{br}", "--jq", ".protected")
+            except BatonError:
+                out[br] = "missing"                 # a branch that is not there is a
+                continue                            # different problem from an open one
+            out[br] = "protected" if p.strip() == "true" else "UNPROTECTED"
+        return out
+
     def probe(self) -> str:
         """`permissions` is the whole point: it proves not just that the token works
         but WHAT it can do here. An agent token reporting admin=True means the

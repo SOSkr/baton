@@ -301,6 +301,26 @@ def cmd_doctor(a, ad, cfg):
         else:
             os.environ["GH_TOKEN"] = saved
 
+    # Protection is per REPO, not per credential, so it gets its own section instead
+    # of being repeated under each token role. Reported and not failed: a solo
+    # trunk-based project may legitimately have none. What must not happen is finding
+    # out months later that one repo of a multi-repo project was never protected.
+    if cfg.all_repos:
+        print("branch protection:")
+        wanted = [cfg.git["integration"], cfg.git["production"]]
+        holes = False
+        for r in cfg.all_repos:
+            try:
+                st = get_repo(r).branch_protection(wanted)
+                print(f"  {r}: " + " · ".join(f"{b}={s}" for b, s in st.items()))
+                holes |= "UNPROTECTED" in st.values()
+            except BatonError as e:
+                print(f"  {r}: could not read — {e}")
+        if holes:
+            print("  ^ an unprotected branch means an agent with push rights skips the"
+                  " PR, the review and CI entirely.")
+            print("    Fix: skills/baton-bootstrap/scripts/protect-branches.sh")
+
     try:
         stages = ad.list_stages()
         print(f"stages: {', '.join(stages) or '(none)'}")
