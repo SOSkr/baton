@@ -26,8 +26,12 @@ branch=$(git -C "$cwd" branch --show-current 2>/dev/null) || exit 0
 head_arg=$(printf '%s' "$cmd" | sed -nE 's/.*(--head|-H)[[:space:]]+([^[:space:]]+).*/\2/p' | sed 's/^[^:]*://')
 [ -z "$head_arg" ] || [ "$head_arg" = "$branch" ] || exit 0
 
-# baton-start convention: <prefix>/<id>-<slug>
-id=$(printf '%s' "$branch" | sed -nE 's#^(feature|bugfix|hotfix|chore|fix)/([0-9]+)-.*#\2#p')
+# baton-start convention: <prefix>/<id>-<slug>, where <id> is the number baton takes
+# (`baton show 42`) written bare or with the board's prefix — `42-` or `CANGURO-42-`.
+# Accepts the long forms `feature`/`bugfix` too: the canonical set is the four commit
+# types, but a hook that silently ignores a near-miss is worse than a permissive one.
+id=$(printf '%s' "$branch" \
+     | sed -nE 's#^(feat|feature|fix|bugfix|chore|hotfix)/([A-Za-z]+-)?([0-9]+)-.*#\3#p')
 [ -n "$id" ] || exit 0
 
 url=$(printf '%s' "$payload" | jq -r '.tool_response.stdout // ""' 2>/dev/null \

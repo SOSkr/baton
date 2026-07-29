@@ -52,6 +52,27 @@ COMMENTS="" BOARD=up   fire "ignores a PR whose --head is another branch" \
 COMMENTS="" BOARD=up   fire "still fires when --head IS the current branch" \
                             "gh pr create --head feature/42-dark-mode" yes
 
+# The prefix set is the four commit types; the long forms stay accepted so a
+# near-miss is never silently ignored.
+for b in feat/42-dark-mode fix/42-x chore/42-x hotfix/42-x feature/42-x bugfix/42-x; do
+    git -C "$TMP/repo" checkout -q -b "$b"
+    COMMENTS="" BOARD=up fire "accepts $b" "gh pr create --fill" yes
+done
+
+# Board-prefixed ids: Plane shows CANGURO-42, `baton show` takes 42. Before this was
+# handled the hook matched nothing and said nothing — the worst possible failure.
+git -C "$TMP/repo" checkout -q -b feat/CANGURO-42-dark-mode
+COMMENTS="" BOARD=up   fire "accepts a board-prefixed id"          "gh pr create --fill" yes
+grep -q 'baton comment 42' "$TMP/log" \
+    && echo "  ok   strips the board prefix from the id" \
+    || { echo "  FAIL board prefix not stripped:"; cat "$TMP/log"; fails=$((fails+1)); }
+
+git -C "$TMP/repo" checkout -q -b no-prefix-at-all
+COMMENTS="" BOARD=up   fire "ignores a branch with no prefix"      "gh pr create --fill" no
+
+git -C "$TMP/repo" checkout -q -b feat/sin-numero-aqui
+COMMENTS="" BOARD=up   fire "ignores a prefixed branch with no id" "gh pr create --fill" no
+
 git -C "$TMP/repo" checkout -q -b develop
 COMMENTS="" BOARD=up   fire "ignores a branch with no item id"    "gh pr create --fill" no
 
