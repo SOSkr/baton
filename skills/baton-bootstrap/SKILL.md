@@ -69,17 +69,19 @@ with push rights skips the PR, the review and CI entirely, which is the whole th
 the credential split exists to prevent.
 
 ```bash
-for br in "$(baton config git.production)" "$(baton config git.integration)"; do
-  gh api -X PUT "repos/<owner>/<name>/branches/$br/protection" --input - <<JSON
-{
-  "required_pull_request_reviews": { "required_approving_review_count": 1 },
-  "required_status_checks": { "strict": false, "contexts": ["<your check>"] },
-  "enforce_admins": false,
-  "restrictions": null
-}
-JSON
-done
+bash "{this skill's dir}/scripts/protect-branches.sh" --check "{your CI check}"
 ```
+
+Branch protection is the same GitHub policy for every project — nothing about it is
+language-specific — so it ships as a script instead of a snippet to retype. It reads
+the branch names from `baton config`, applies the same policy to both, and **reads each
+one back**: a PUT that returned 200 and a branch that is actually protected are two
+different claims.
+
+It **refuses to guess** about checks. Pass `--check <name>`, or `--no-checks` to say
+you mean it — a protection with no required check lets a red PR merge, and one naming
+a check that does not exist yet makes every PR hang. Neither should arrive by accident.
+Rerun it later to add the check once CI exists; the call is a PUT, so it is idempotent.
 
 Three decisions, each on purpose:
 
@@ -96,8 +98,13 @@ Three decisions, each on purpose:
   and require that one name.
 
 baton does not ship your CI — the workflow is your project's language and tooling. What
-it asks is that the repo produce a check with a **stable** name and that the protection
-require it. Set the protections after that check exists, or the first PR will hang.
+it asks is that the repo produce a check with a **stable** name, and the script wires
+the protection to it. Run it with `--no-checks` first if CI does not exist yet, then
+again with `--check` once it does.
+
+The script needs **admin** and uses `$GH_ADMIN_TOKEN` when set. It checks first and
+stops if the credential lacks it — half-applied protections that report success are
+worse than none, because repo writes succeed while admin writes do not.
 
 ## 5. Label axes
 
