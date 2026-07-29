@@ -64,14 +64,21 @@ Before writing, `baton show <id> --comments` — if it is already said, don't re
   if that's your terminal state.
 
 ## Multi-part items (checklist)
-If the item has a "Checklist" (several areas/services), on finishing **your** part:
-tick your box + link your PR in the item body:
+If the item has a "Checklist" — one box per repo, or one box per phase of a wide
+mechanical change — then on finishing **your** part: tick your box + link your PR
+in the item body:
 ```bash
 baton body <id> --body "$(...updated body with your box ticked...)"
 ```
 **Do not** mark Done or close while any box is unticked — the item stays In Progress
 until the last part lands. Only the final part → Done, then Ship/close. A single
 part's release must not close the item if siblings remain.
+
+**Phase boxes are ordered; repo boxes are not.** Never start a phase while an earlier
+one is still open. In an expand–contract that is the entire point: run `contract`
+before the migrate batches have landed and you delete something that still has
+callers. The board does not enforce this — the order in the body and the test suite
+do, so read the body before you pick a box.
 
 ## Notes
 - Keep the item's stage current as work progresses (`baton list --stage "In Progress"`).

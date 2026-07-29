@@ -31,6 +31,13 @@ Config: `.baton/config.yaml` (backend, target, label axes, stage aliases).
 
    Ambiguous? Ask. A bug filed as a task loses the repro; a task filed as an epic
    never closes.
+
+   **Size it against both tests.** One `Verification` that proves the *whole* thing
+   done — two unrelated checks are two items. And one fresh context window for
+   whoever implements it — one thing too wide to hold at once is still too big, and
+   an agent that compacts halfway through ends up contradicting its own start.
+   The exception is a wide mechanical change that no slice can make green on its
+   own: that is **one** item with a Checklist box per phase, not several items.
 3. **Write the body** from that template. Fill a section or delete it — placeholder
    text left in is worse than no section. Follow the project's language convention
    if it has one. `Verification` and `Out of scope` are optional for human-executed
