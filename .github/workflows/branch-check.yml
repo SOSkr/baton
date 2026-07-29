@@ -1,0 +1,42 @@
+name: Branch Protection Check
+
+on:
+  pull_request:
+    branches: [master, develop]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  branch-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PR base branch
+        run: |
+          echo "PR #${{ github.event.pull_request.number }}"
+          echo "Head: ${{ github.head_ref }}"
+          echo "Base: ${{ github.base_ref }}"
+
+      - name: Validate branch naming (git flow)
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if ! echo "$BRANCH" | grep -qE '^(feat|feature|release|hotfix|bugfix|chore)/'; then
+            echo "::warning:: Branch '$BRANCH' no sigue el prefijo git flow convencional"
+          fi
+          echo "Branch: $BRANCH OK"
+
+      - name: Check PR has description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "$PR_BODY" ] || [ ${#PR_BODY} -lt 10 ]; then
+            echo "::error:: El PR debe tener una descripción (mínimo 10 caracteres)"
+            exit 1
+          fi
+
+      - name: Check no merge conflict markers
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}..HEAD | xargs grep -lE '^(<<<<<<<|=======|>>>>>>>)' 2>/dev/null; then
+            echo "::error:: Marcadores de conflicto encontrados en el diff"
+            exit 1
+          fi
