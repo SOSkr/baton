@@ -5,6 +5,7 @@ description: >
   "reject X", "rechazar idea", or decides an item won't move forward.
 license: MIT
 compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+credential: agent
 ---
 
 # baton reject

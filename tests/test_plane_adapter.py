@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("PLANE_API_KEY", "fake-token")
 
-from baton.adapters.plane import PlaneAdapter  # noqa: E402
+from baton.adapters.boards.plane import PlaneAdapter  # noqa: E402
 from baton.base import BatonError  # noqa: E402
 
 
@@ -30,6 +30,8 @@ class FakePlane:
         ]
         self.labels = []  # [{id, name}]
         self.items = {}   # uuid -> issue dict
+        self.modules = []          # [{id, name, target_date, total_issues, completed_issues}]
+        self.module_items = {}     # module id -> [item uuid]
         self._n = 0
 
     def request(self, method, path, body=None, params=None):
@@ -54,6 +56,26 @@ class FakePlane:
                 self.labels.append(lbl)
                 return lbl
 
+        if rest[0] == "modules":
+            if len(rest) == 1:
+                if method == "GET":
+                    return {"results": self.modules}
+                if method == "POST":
+                    m = {"id": f"m-{len(self.modules) + 1}", "name": body["name"],
+                         "target_date": body.get("target_date"),
+                         "total_issues": 0, "completed_issues": 0}
+                    self.modules.append(m)
+                    return m
+            if rest[2:] == ["module-issues"]:
+                mid = rest[1]
+                if method == "POST":
+                    self.module_items.setdefault(mid, []).extend(body["issues"])
+                    return {}
+                if method == "GET":
+                    # link objects, the shape that carries the item uuid under "issue"
+                    return {"results": [{"id": f"link-{i}", "issue": u}
+                                        for i, u in enumerate(self.module_items.get(mid, []))]}
+
         if rest[0] == "work-items":
             if len(rest) == 1:
                 if method == "GET":
@@ -63,7 +85,8 @@ class FakePlane:
                     uid = f"w-{self._n}"
                     issue = {"id": uid, "sequence_id": self._n, "name": body["name"],
                              "description_html": body.get("description_html", ""),
-                             "labels": body.get("labels", []), "state": self.states[0]["id"]}
+                             "labels": body.get("labels", []), "state": self.states[0]["id"],
+                             "priority": body.get("priority", "none")}
                     self.items[uid] = issue
                     return issue
             uid = rest[1]
@@ -177,8 +200,60 @@ def test_comment_html_is_stripped():
     assert "línea 1" in body and "línea 2" in body
 
 
+def test_priority_uses_the_native_field_not_a_label():
+    """The whole point of native-first: a `priority:high` LABEL is invisible to the
+    board's own sorting and filtering. This must land in the real field."""
+    ad, fake = make_adapter()
+    it = ad.create("urgent thing", "", [], priority="high")
+    assert fake.items["w-1"]["priority"] == "high"   # native field, not a label
+    assert it.priority == "high" and it.labels == []
+
+    ad.set_priority("1", "low")
+    assert fake.items["w-1"]["priority"] == "low"
+    assert ad.get("1").priority == "low"
+
+    # the list endpoint expands it to an object; both shapes must read the same
+    fake.items["w-1"]["priority"] = {"id": "urgent", "label": "Urgent", "key": None}
+    assert ad.get("1").priority == "urgent"
+
+    # default when nobody sets it — and `capabilities()` must claim it
+    ad.create("plain", "", [])
+    assert ad.get("2").priority == "none"
+    assert "priority" in ad.capabilities()
+
+
+def test_epics_are_native_modules_and_are_never_auto_created():
+    ad, fake = make_adapter()
+    assert ad.list_groups() == []
+
+    g = ad.create_group("Q3 auth", target_date="2026-09-30")
+    assert g.name == "Q3 auth" and g.target_date == "2026-09-30"
+
+    # filing into an epic that does not exist must FAIL, not invent one
+    ad.create("in the epic", "", [])
+    try:
+        ad.set_group("1", "Nope")
+        assert False, "expected BatonError"
+    except BatonError as e:
+        assert "not found" in str(e) and "Q3 auth" in str(e)
+    assert len(fake.modules) == 1        # nothing was created behind our back
+
+    ad.set_group("1", "q3 AUTH")         # by name, case-insensitive
+    assert fake.module_items["m-1"] == ["w-1"]
+
+    ad.create("outside the epic", "", [])
+    assert [i.id for i in ad.list(group="Q3 auth")] == ["1"]
+    assert len(ad.list()) == 2
+
+    fake.modules[0].update(total_issues=12, completed_issues=7)
+    got = ad.list_groups()[0]
+    assert (got.total, got.done) == (12, 7)   # progress comes from the board, not us
+
+
 if __name__ == "__main__":
     test_discovery_and_lifecycle()
+    test_priority_uses_the_native_field_not_a_label()
+    test_epics_are_native_modules_and_are_never_auto_created()
     test_list_filters_by_stage_and_state()
     test_unknown_stage_errors()
     test_unknown_issue_errors()

@@ -55,8 +55,15 @@ if [ -n "$no_merge" ]; then
     exit 0
 fi
 
-# --admin: branch protection asks for a review and you cannot approve your own PR
-gh pr merge "$url" --merge --admin
+# The merge is the ONE admin op in a release: branch protection asks for a review
+# you cannot give yourself (GitHub blocks approving your own PR). Run it with the
+# admin credential when there is one, so the agent token never needs merge rights.
+if [ -n "${GH_ADMIN_TOKEN:-}" ]; then
+    GH_TOKEN="$GH_ADMIN_TOKEN" gh pr merge "$url" --merge --admin
+else
+    echo "note: \$GH_ADMIN_TOKEN not set — merging with the current credential." >&2
+    gh pr merge "$url" --merge --admin
+fi
 echo "Merged into $base."
 
 if ! gh workflow view "$workflow" > /dev/null 2>&1; then
