@@ -5,7 +5,7 @@ description: >
   labels, and the comment trail. Use when the user says "migrate the board", "migrar
   de github projects", "traer los issues a Plane", "import the old project".
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton), gh
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board), gh
 credential: agent
 ---
 

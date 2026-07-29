@@ -5,7 +5,7 @@ description: >
   the feature branch, and drive it to Done/Shipped. Use when the user says
   "start X", "implement idea", "empezar/implementar", "work on <id>".
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
 credential: agent
 ---
 

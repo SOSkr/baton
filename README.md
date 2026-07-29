@@ -352,6 +352,9 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
 - `gh` CLI, authenticated, with `project` scope (GitHub backend).
 - Python ≥ 3.11. Run with `uv run baton ...` or `pipx install .`.
 
+The distribution is **`baton-board`** (`baton` was already taken on PyPI by an
+unrelated iRODS wrapper); the command it installs is `baton`.
+
 ## Roadmap
 
 - **`baton search`** — embeddings-based retrieval, gated on scale (hundreds+ items
@@ -363,8 +366,8 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
 
 ## Status
 
-GitHub and Plane adapters done, both verified live. Packaging/publish
-(PyPI/skills registry) pending.
+Plane board adapter and the GitHub code-host client done, both verified live.
+Publishing pending: skills.sh, and PyPI as `baton-board`.
 
 ## License
 
