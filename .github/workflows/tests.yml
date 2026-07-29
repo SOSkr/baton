@@ -36,10 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Sin config a propósito: los defaults de ruff son E4/E7/E9 + F, y F es lo
-      # que importa acá. En el PR #17 dejé un import faltante que pasó los 28
-      # tests y solo apareció corriendo el CLI a mano; F821 lo agarra en dos
-      # segundos.
+      # Las reglas se declaran en pyproject.toml [tool.ruff.lint], no acá y no por
+      # defaults: los defaults de ruff cambiaron entre 0.15 y 0.16, así que dejarlo
+      # implícito hace que el lint mute solo cuando el runner actualiza.
       - uses: astral-sh/ruff-action@v3
         with:
           args: check --output-format=github
