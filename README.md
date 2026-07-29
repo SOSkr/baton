@@ -2,10 +2,14 @@
 
 [![skills.sh](https://skills.sh/b/SOSkr/baton)](https://skills.sh/SOSkr/baton)
 
-Work-item lifecycle over a board — **backend-agnostic**. Move items through your
-board's stages (triage → advance → ship) from the CLI or via Claude Code skills,
-against **Plane** today and other trackers tomorrow, without
-hardcoding a single project/field/option ID.
+Work-item lifecycle from idea to shipped — **agent- and backend-agnostic**. Move
+items through your board's stages (triage → approve → start → verify → ship) from
+the CLI or from your agent's own skills, without hardcoding a single
+project/field/option ID.
+
+Three things swap independently: the **board** (Plane today), the **code host**
+(GitHub today), and the **agent** (Claude Code and OpenCode today). Each is an
+adapter or a symlink — never a rewrite.
 
 ## How it works
 
@@ -14,7 +18,9 @@ Two layers:
   A backend **adapter** (`plane`, ...) + **discovery** resolves IDs by name.
 - **Skills** (`skills/`) — the judgment (triage scoring, priority, gates); they call `baton`.
 
-Swapping trackers = a new adapter, not rewritten skills.
+The split is what makes both axes swappable. Skills hold no ids and no API calls, so a
+new tracker is [a new adapter](docs/adapters/), not rewritten skills; the CLI holds no
+prompts, so a new agent is a symlink into wherever that agent reads skills from.
 
 ## Architecture
 
