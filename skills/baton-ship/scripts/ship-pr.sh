@@ -3,15 +3,18 @@
 # workflow (which is what usually creates the tag / release).
 #
 # Usage (from the target repo root):
-#   ship-pr.sh "release summary" [--no-merge] [--base master] [--head develop] [--workflow verify-deploy]
+#   ship-pr.sh "release summary" [--no-merge] [--base B] [--head H] [--workflow W]
+# Base/head default to `baton config git.production` / `git.integration`.
 set -euo pipefail
 
 title="${1:?usage: ship-pr.sh \"release summary\" [--no-merge] [--base B] [--head H] [--workflow W]}"
 shift
 
 no_merge=""
-base="master"
-head="develop"
+# Branch names come from .baton/config.yaml when baton and a config are in reach;
+# flags below still win. The fallbacks keep the script usable standalone.
+base=$(baton config git.production 2>/dev/null || echo master)
+head=$(baton config git.integration 2>/dev/null || echo develop)
 workflow="verify-deploy"
 while [ $# -gt 0 ]; do
     case "$1" in

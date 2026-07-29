@@ -203,6 +203,29 @@ def test_migration_source_is_project_data_not_skill_data():
         assert load(root / "other").migrate_from == {}
 
 
+def test_git_branch_names_are_config_with_defaults():
+    """Branch names baked into a SKILL.md are wrong for every project that names
+    things differently — and the skills are installed globally, so they cannot be
+    edited per project. Defaults exist so a project that agrees with them says
+    nothing; a trunk-based repo points both at the same branch."""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _write(root / ".baton" / "config.yaml", _PLANE % "P")
+        cfg = load(root)
+        assert cfg.git == {"integration": "develop", "production": "master"}
+
+        _write(root / "t" / ".baton" / "config.yaml",
+               _PLANE % "P" + "git: {integration: main, production: main}\n")
+        trunk = load(root / "t")
+        assert trunk.git["integration"] == trunk.git["production"] == "main"
+
+        # a partial override keeps the other default instead of blanking it
+        _write(root / "p" / ".baton" / "config.yaml",
+               _PLANE % "P" + "git: {production: main}\n")
+        part = load(root / "p")
+        assert part.git == {"integration": "develop", "production": "main"}
+
+
 def test_write_config_rejects_incomplete_targets():
     with tempfile.TemporaryDirectory() as d:
         for n, target in enumerate(({}, {"workspace": "w"}, {"base_url": "https://p"})):
@@ -225,5 +248,6 @@ if __name__ == "__main__":
     test_code_repo_carries_the_git_host_the_board_knows_nothing_about()
     test_multirepo_project_resolves_the_repo_from_the_area_label()
     test_migration_source_is_project_data_not_skill_data()
+    test_git_branch_names_are_config_with_defaults()
     test_write_config_rejects_incomplete_targets()
     print("ok")

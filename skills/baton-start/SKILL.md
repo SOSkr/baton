@@ -22,8 +22,13 @@ stage; the code lives in the target repo (which may differ from where the item l
    resolves. Implementation happens **there**, not where the board lives.
 3. **Feature branch** (in the target repo):
    ```bash
-   git checkout develop && git pull && git checkout -b feature/<id>-<slug>
+   git checkout "$(baton config git.integration)" && git pull
+   git checkout -b "feat/<id>-<slug>"
    ```
+   Prefix is one of `feat` · `fix` · `chore` · `hotfix` — the same words the commit
+   types use. **The `<id>` is load-bearing**, not decoration: the optional PR hook
+   reads it off the branch to post the PR link back to the item, and a branch without
+   one silently never gets linked.
 4. **Mark In Progress**: `baton start <id>` (config alias, default `In Progress`).
 5. **Break down** the acceptance criteria and implement. If the body has an
    "Out of scope", stay out of it; if it has a "Verification", run it and report the
