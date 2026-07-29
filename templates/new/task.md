@@ -17,7 +17,10 @@ What changes. Concrete enough to implement without a second conversation.
 (or: open <URL/artifact>, expect <what you should see>)
 
 ## Out of scope
-`<path/or/area>` — must not be touched by this implementation.
+<what must not change — the behaviour, module or contract, **not a file path**. An
+item can sit on the board for weeks and paths rot; worse, a stale path makes the
+scope check pass for the wrong reason. `baton-verify` resolves this to real files
+against the tree as it is at review time.>
 
 <!-- Optional — ONE item that cannot land as a single change. A box is a part that
      must land before the item can close, and the gate in baton-start is what

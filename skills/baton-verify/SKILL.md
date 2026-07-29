@@ -44,7 +44,13 @@ that separation is the point, do not route around it.
 4. **Check the four questions**:
    - every acceptance criterion satisfied, with a `file:line` or test name as evidence
    - Verification passes
-   - nothing in `Out of scope` was touched
+   - nothing in `Out of scope` was touched. The item names a **behaviour, module or
+     contract**, not paths — so **resolve it to the files it means in the tree as it
+     is now**, list those files in the verdict, and check the diff against that list.
+     You are not the implementer, and that is exactly why this resolution is yours to
+     make: asking the author of a change to draw its own boundary is asking the wrong
+     party. If the boundary cannot be resolved to anything concrete, score that
+     dimension INCONCLUSIVE — never PASS
    - files changed that **no criterion asked for** — the usual shape of a 20-line
      change that arrived as 300
 5. **Post the verdict** — fill `{this skill's dir}/templates/pr-review.md`:
@@ -57,12 +63,14 @@ that separation is the point, do not route around it.
    ```
    The PR gets the detail, the item gets the one-liner: the item is the trail
    someone reads in six months, and a full review table there is noise.
-6. **Only on PASS** does the item advance:
+6. **Only on PASS** does the item advance — and this skill is the **only** thing that
+   advances it. `baton-start` hands off here and does not move the item itself:
    ```bash
    baton advance <id> --to Done
    ```
    FAIL leaves it In Progress. Do not advance an item whose verification you could
-   not run.
+   not run. Projects that declare `stages.verify` in config get this enforced by the
+   CLI, which refuses any jump over that stage.
 
 ## Verdicts
 

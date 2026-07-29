@@ -50,6 +50,31 @@ def _flag_backward(ad, cfg, item_id, prev_stage, target_stage):
         pass
 
 
+def _require_verify(ad, cfg, item_id, prev_stage, target_stage):
+    """Refuse a move that jumps OVER the verify stage.
+
+    Opt-in: only when the project declares `stages.verify`. It gates the STAGE, not
+    the work — nothing stops two `advance` calls in a row. What it buys is that
+    skipping verification stops being an oversight nobody notices and becomes a
+    deliberate move, recorded in the board's own history.
+    """
+    if "verify" not in cfg.stages or not prev_stage:
+        return
+    verify_stage = cfg.stages["verify"]
+    try:
+        order = [s.lower() for s in ad.list_stages()]
+        v = order.index(verify_stage.lower())
+        p, t = order.index(prev_stage.lower()), order.index(target_stage.lower())
+    except (BatonError, ValueError):
+        return          # unknown stage names — not our call to block on
+    if p < v < t:
+        raise BatonError(
+            f"#{item_id}: {prev_stage} → {target_stage} skips {verify_stage!r}. "
+            f"Run the baton-verify skill — it checks the diff against the acceptance "
+            f"criteria and the scope boundary, and advances the item itself. To move "
+            f"it without verifying, go through {verify_stage!r} explicitly.")
+
+
 def cmd_new(a, ad, cfg):
     it = ad.create(a.title, a.body or "", a.label or [], priority=a.priority)
     if a.stage:
@@ -108,12 +133,14 @@ def cmd_stages(a, ad, cfg):
 
 def cmd_advance(a, ad, cfg):
     prev = ad.get(a.id).stage
+    _require_verify(ad, cfg, a.id, prev, a.to)
     ad.set_stage(a.id, a.to)
     _flag_backward(ad, cfg, a.id, prev, a.to)
     _emit(f"#{a.id} → {a.to}", a.json)
 
 
-_DEFAULT_STAGE = {"approve": "Approved", "start": "In Progress", "ship": "Deployed"}
+_DEFAULT_STAGE = {"approve": "Approved", "start": "In Progress",
+                  "verify": "Verify", "ship": "Deployed"}
 
 
 def _verb_stage(cfg, verb: str) -> str:
@@ -125,6 +152,7 @@ def _cmd_verb(verb: str):
     def fn(a, ad, cfg):
         st = _verb_stage(cfg, verb)
         prev = ad.get(a.id).stage
+        _require_verify(ad, cfg, a.id, prev, st)
         ad.set_stage(a.id, st)
         _flag_backward(ad, cfg, a.id, prev, st)
         _emit(f"#{a.id} → {st}", a.json)
@@ -343,7 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--to", required=True)
     s.set_defaults(fn=cmd_advance)
 
-    for verb in ("approve", "start", "ship"):
+    for verb in ("approve", "start", "verify", "ship"):
         s = sub.add_parser(verb, help=f"advance item to the '{verb}' stage (config alias)")
         s.add_argument("id")
         s.set_defaults(fn=_cmd_verb(verb))

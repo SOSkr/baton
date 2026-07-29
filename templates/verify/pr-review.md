@@ -18,7 +18,9 @@ $ <the command from the item's Verification section>
 <or: "the item states no Verification" — say so, do not invent one>
 
 ### Out of scope
-<clean · or the files touched that the item said not to touch, listed>
+Boundary as the item states it: <quoted — behaviour, module or contract>
+Resolved to, in the tree today: `<file>`, `<file>`, `<file>`
+Verdict: <clean · or the files from that list that the diff touched, named>
 
 ### Unrequested changes
 Files in the diff that no criterion asked for: <list, or "none">

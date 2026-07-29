@@ -157,8 +157,54 @@ def test_backward_flag():
     assert a2.get(it2.id).labels == []
 
 
+def test_verify_stage_cannot_be_skipped():
+    """Opt-in gate: with `stages.verify` declared, a jump OVER it is refused. It
+    gates the stage, not the work — going through it explicitly is still allowed,
+    which is the point: skipping becomes deliberate and visible, not an oversight."""
+    import argparse
+    from baton.cli import cmd_advance
+    from baton.config import Config
+    # FakeAdapter.STAGES = ["Review", "Approved", "In Progress", "Done"]
+    a = FakeAdapter()
+    cfg = Config(backend="plane", stages={"verify": "In Progress"})
+
+    def advance(item, to, c=cfg, ad=None):
+        cmd_advance(argparse.Namespace(id=item, to=to, json=False), ad or a, c)
+
+    it = a.create("x", "", [])
+    a.set_stage(it.id, "Approved")
+
+    # Approved → Done jumps over "In Progress" (the declared verify stage)
+    try:
+        advance(it.id, "Done")
+        assert False, "expected BatonError"
+    except BatonError as e:
+        assert "skips" in str(e) and "In Progress" in str(e)
+    assert a.get(it.id).stage == "Approved"      # the move did NOT happen
+
+    # going through it explicitly is allowed — two deliberate steps
+    advance(it.id, "In Progress")
+    advance(it.id, "Done")
+    assert a.get(it.id).stage == "Done"
+
+    # forward moves that do not cross the verify stage are untouched
+    b = FakeAdapter()
+    it2 = b.create("y", "", [])
+    b.set_stage(it2.id, "Review")
+    advance(it2.id, "Approved", ad=b)
+    assert b.get(it2.id).stage == "Approved"
+
+    # and a project that never declares stages.verify is never gated
+    c = FakeAdapter()
+    it3 = c.create("z", "", [])
+    c.set_stage(it3.id, "Approved")
+    advance(it3.id, "Done", c=Config(backend="plane"), ad=c)
+    assert c.get(it3.id).stage == "Done"
+
+
 if __name__ == "__main__":
     test_lifecycle()
+    test_verify_stage_cannot_be_skipped()
     test_unknown_stage_errors()
     test_labels_add_remove()
     test_verb_stage()

@@ -27,7 +27,7 @@ prompts, so a new agent is a symlink into wherever that agent reads skills from.
 ```
 baton/
 ├── src/baton/
-│   ├── cli.py            # verbs: init/export/new/priority/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
+│   ├── cli.py            # verbs: init/export/new/priority/verify/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
 │   ├── base.py            # Adapter contract + Item dataclass — every backend implements this
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
 │   └── adapters/          # three families — see docs/adapters/
@@ -79,6 +79,7 @@ target:
 stages:               # optional verb→stage aliases
   approve: Approved
   start: In Progress
+  verify: Verify      # declaring this ALSO gates it — see below
   ship: Deployed
 tokens:               # optional — env var NAMES per credential role (see below)
   agent: PLANE_API_KEY
@@ -144,6 +145,12 @@ Asking for `admin` when its variable is unset is an **error**, not a fallback: a
 op silently running with agent rights either fails confusingly or quietly does less than
 you think. The split only buys you anything if the admin credential is genuinely absent
 from the agent's environment — if both sit in the same shell, it is decoration.
+
+Declaring `stages.verify` turns it into a **gate**: baton refuses any move that jumps
+over that stage, so an item cannot reach Done without passing through verification.
+It gates the stage, not the work — two deliberate `advance` calls still get you
+through — but skipping stops being an oversight nobody notices and becomes a move
+recorded in the board's own history. Projects that do not declare it are never gated.
 
 `review_label` is applied only on **unexpected backward transitions** (e.g. `Approved → Review`), detected from the board's real stage order. Normal forward flow (new → review → approve → start → ship) is never flagged — that's the expected process. Backward moves get the label so a human can double-check what happened.
 

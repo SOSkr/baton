@@ -21,5 +21,5 @@ The reproduction above no longer reproduces, plus:
 `<the regression test or command>` — expected: <result>.
 
 ## Out of scope
-`<path/or/area>` — the neighbouring smell someone will be tempted to fix here.
-Fix the root cause of THIS bug, not everything it touches.
+<the neighbouring smell someone will be tempted to fix here — named as behaviour or
+module, not a file path. Fix the root cause of THIS bug, not everything it touches.>
