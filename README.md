@@ -340,6 +340,7 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
   search covers it.
 - **`baton prune`** — flag stale items (old + referencing closed/superseded
   issues) for review, cheaply, before a model looks at the flagged subset.
+  Designed, not built: [docs/design/prune.md](docs/design/prune.md).
 
 ## Status
 
