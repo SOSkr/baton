@@ -77,9 +77,9 @@ class Config:
 
     def repo_for_labels(self, labels: list[str]) -> str | None:
         """The repo implied by an item's labels (the first `area:<x>` that maps)."""
-        for l in labels or []:
-            if l.lower().startswith("area:"):
-                hit = self.repos.get(l.split(":", 1)[1])
+        for lb in labels or []:
+            if lb.lower().startswith("area:"):
+                hit = self.repos.get(lb.split(":", 1)[1])
                 if hit:
                     return hit
         return self.code_repo

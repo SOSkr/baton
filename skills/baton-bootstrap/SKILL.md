@@ -62,18 +62,49 @@ and are created later, deliberately, by `baton-roadmap` — not here.
 The point of the credential split. The agent opens PRs; it must not be able to merge
 its own work unreviewed.
 
+**Protect both branches, not just production.** The agent touches the integration
+branch on **every item** and production **once per release** — protecting only
+production guards the branch they touch least. Leave integration open and an agent
+with push rights skips the PR, the review and CI entirely, which is the whole thing
+the credential split exists to prevent.
+
 ```bash
-gh api -X PUT repos/<owner>/<name>/branches/master/protection \
-  -f "required_pull_request_reviews[required_approving_review_count]=1" \
-  -F "enforce_admins=false" -F "required_status_checks=null" -F "restrictions=null"
+bash "{this skill's dir}/scripts/protect-branches.sh" --check "{your CI check}"
 ```
 
-Adjust to your policy. Two things to decide explicitly:
+Branch protection is the same GitHub policy for every project — nothing about it is
+language-specific — so it ships as a script instead of a snippet to retype. It reads
+the branch names from `baton config`, applies the same policy to both, and **reads each
+one back**: a PUT that returned 200 and a branch that is actually protected are two
+different claims.
+
+It **refuses to guess** about checks. Pass `--check <name>`, or `--no-checks` to say
+you mean it — a protection with no required check lets a red PR merge, and one naming
+a check that does not exist yet makes every PR hang. Neither should arrive by accident.
+Rerun it later to add the check once CI exists; the call is a PUT, so it is idempotent.
+
+Three decisions, each on purpose:
+
 - **required reviews ≥ 1** — this is what stops an agent self-merging, because GitHub
   does not let a PR author approve their own PR.
 - **`enforce_admins`** — leave it `false` and `baton-ship` can merge releases with
   `--admin`; set it `true` and every release needs a human approval. Pick one on
   purpose; the default here is not a recommendation.
+- **which checks** — require **one aggregated name**, never the names a build matrix
+  produces. A matrix reports `test (3.11)`, `test (3.12)`, … and no plain `test`;
+  requiring those means that adding a version later blocks **every** PR until someone
+  with admin edits the protection — and it does not fail, it hangs, waiting for a
+  status that will never arrive. Have CI expose a single job that depends on the rest,
+  and require that one name.
+
+baton does not ship your CI — the workflow is your project's language and tooling. What
+it asks is that the repo produce a check with a **stable** name, and the script wires
+the protection to it. Run it with `--no-checks` first if CI does not exist yet, then
+again with `--check` once it does.
+
+The script needs **admin** and uses `$GH_ADMIN_TOKEN` when set. It checks first and
+stops if the credential lacks it — half-applied protections that report success are
+worse than none, because repo writes succeed while admin writes do not.
 
 ## 5. Label axes
 

@@ -1,6 +1,6 @@
 [project]
 name = "baton-board"          # `baton` está tomado en PyPI; el comando sigue siendo `baton`
-version = "0.1.0"
+version = "0.2.0"
 description = "Work-item lifecycle from idea to shipped — agent- and backend-agnostic CLI + agent skills"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,14 @@ Issues = "https://github.com/SOSkr/baton/issues"
 
 [project.scripts]
 baton = "baton.cli:main"
+
+[tool.ruff.lint]
+# Explícito a propósito, no por gusto de configurar: los defaults de ruff NO son
+# estables entre versiones —0.15 seleccionaba E4/E7/E9+F y 0.16 sumó I, RUF—, así
+# que "sin config" significa que el lint cambia solo cuando el runner actualiza.
+# Lo que se busca acá es `F`: en el PR #17 un import faltante pasó los 28 tests y
+# solo apareció corriendo el CLI a mano. F821 lo agarra en dos segundos.
+select = ["E4", "E7", "E9", "F"]
 
 [build-system]
 requires = ["hatchling"]
