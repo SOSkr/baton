@@ -1,3 +1,5 @@
+> *Scored by an agent, not a human.*
+
 ## Review
 
 | Criterion | Score | Note |
