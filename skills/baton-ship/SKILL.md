@@ -2,7 +2,8 @@
 name: baton-ship
 description: Ship what is on the integration branch to production and close the loop on every work-item that went out. Use when the user says "release", "ship it", "deploy to production", "crear release", "llevar develop a producción".
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
+credential: agent
 ---
 
 # baton-ship
@@ -42,8 +43,9 @@ body, waits for checks, merges with `--admin` (branch protection asks for a revi
 you cannot give yourself), then waits for the deploy-verification workflow run
 matching the merged SHA and fails if that run fails.
 
-Defaults are `--base master --head develop --workflow verify-deploy`; override per
-repo:
+Base and head default to `baton config git.production` and `git.integration`, so a
+repo that calls its branches something else needs no flag. `--workflow` defaults to
+`verify-deploy`. Override any of them:
 
 ```bash
 bash .../ship-pr.sh "summary" --base main --head dev --workflow deploy

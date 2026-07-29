@@ -2,9 +2,13 @@ name: tests
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
   pull_request:
-    branches: [master]
+    branches: [master, develop]
+    # `edited` incluye el cambio de rama base. Sin él, un PR apilado que GitHub
+    # reapunta a develop al mergear su base se queda en amarillo para siempre:
+    # el default de types es [opened, synchronize, reopened] y ninguno dispara.
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
   test:
@@ -17,3 +21,4 @@ jobs:
       - run: pip install pyyaml
       - run: python tests/test_smoke.py
       - run: python tests/test_plane_adapter.py
+      - run: python tests/test_config.py

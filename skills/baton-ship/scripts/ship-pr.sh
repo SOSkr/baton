@@ -3,15 +3,18 @@
 # workflow (which is what usually creates the tag / release).
 #
 # Usage (from the target repo root):
-#   ship-pr.sh "release summary" [--no-merge] [--base master] [--head develop] [--workflow verify-deploy]
+#   ship-pr.sh "release summary" [--no-merge] [--base B] [--head H] [--workflow W]
+# Base/head default to `baton config git.production` / `git.integration`.
 set -euo pipefail
 
 title="${1:?usage: ship-pr.sh \"release summary\" [--no-merge] [--base B] [--head H] [--workflow W]}"
 shift
 
 no_merge=""
-base="master"
-head="develop"
+# Branch names come from .baton/config.yaml when baton and a config are in reach;
+# flags below still win. The fallbacks keep the script usable standalone.
+base=$(baton config git.production 2>/dev/null || echo master)
+head=$(baton config git.integration 2>/dev/null || echo develop)
 workflow="verify-deploy"
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -55,8 +58,15 @@ if [ -n "$no_merge" ]; then
     exit 0
 fi
 
-# --admin: branch protection asks for a review and you cannot approve your own PR
-gh pr merge "$url" --merge --admin
+# The merge is the ONE admin op in a release: branch protection asks for a review
+# you cannot give yourself (GitHub blocks approving your own PR). Run it with the
+# admin credential when there is one, so the agent token never needs merge rights.
+if [ -n "${GH_ADMIN_TOKEN:-}" ]; then
+    GH_TOKEN="$GH_ADMIN_TOKEN" gh pr merge "$url" --merge --admin
+else
+    echo "note: \$GH_ADMIN_TOKEN not set — merging with the current credential." >&2
+    gh pr merge "$url" --merge --admin
+fi
 echo "Merged into $base."
 
 if ! gh workflow view "$workflow" > /dev/null 2>&1; then

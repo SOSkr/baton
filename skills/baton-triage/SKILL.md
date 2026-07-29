@@ -5,7 +5,8 @@ description: >
   verdict. Use when the user says "triage X", "review idea/item", "evaluate X",
   "revisar idea". Does not change the stage — records the assessment.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
+credential: agent
 ---
 
 # baton triage
@@ -23,7 +24,7 @@ the **judgment**. Triage records a verdict; it does not move the stage (approval
    ```
 2. **Score** against the criteria below (0-5 each). Adapt example checks to the
    project's domain.
-3. **Post the verdict** (score table · strengths · concerns · suggestions · recommendation):
+3. **Post the verdict** — fill `{this skill's dir}/templates/verdict.md`:
    ```bash
    baton comment <id> --body "$(cat <<'EOF'
    ## Review
@@ -45,9 +46,31 @@ the **judgment**. Triage records a verdict; it does not move the stage (approval
 3. **Value / Impact** — real problem; improves the product's core goals.
 4. **Consistency** — aligned with existing patterns; doesn't contradict current
    behavior. Check related items for conflicts/synergies (`baton list --label ...`).
-5. **Completeness** — clear acceptance criteria, edge cases, concrete proposal.
+5. **Completeness** — clear acceptance criteria, edge cases, concrete proposal. If an
+   agent will implement it and nothing says how to verify the result, cap this at 3.
 
 ## Recommendation by score
 - **≥ 15/25** → approve · **10-14** → revise (specific improvements) · **< 10** → reject.
 
 Always explain WHY, not just the number.
+
+## When the verdict is "revise"
+
+`approve` and `reject` each have a skill behind them. `revise` has none, and it is the
+most common verdict — so it is on you to say **what** to sharpen, not just that it needs
+sharpening. Check these four first, because they are what the rest of the lifecycle
+actually reads:
+
+| Gap | What it breaks downstream |
+|---|---|
+| criteria that cannot be checked one at a time | `baton-verify` has nothing to produce a per-criterion verdict against |
+| no `Verification`, or two unrelated ones | unverifiable, or it is two items — verify scores it INCONCLUSIVE |
+| `Out of scope` written as file paths | paths rot while the item waits, and a stale path makes the scope check pass for the wrong reason |
+| too wide to hold in one fresh context window | whoever implements it compacts halfway and contradicts their own start |
+
+**Sharpen by interviewing the author, not by rewriting the item yourself.** Every gap
+above is a missing *decision*, and those belong to whoever filed it — one question at a
+time, with your recommended answer, looking up whatever is a fact rather than asking.
+Then `baton body <id>` with the result.
+
+The item does not move: `revise` is a verdict, not a stage.

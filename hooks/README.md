@@ -9,8 +9,11 @@ Optional — baton works without them.
 
 ## `pr-comment-reminder`
 
-Fires after a `gh pr create`, when the current branch follows baton's convention
-(`feature/<id>-<slug>`, plus `bugfix|hotfix|chore|fix`). Then it does two things:
+Fires after a `gh pr create`, when the current branch follows baton's convention —
+`<prefix>/<id>-<slug>`, prefix one of `feat|fix|chore|hotfix` (the long forms
+`feature|bugfix` are accepted too). The id is the number `baton show` takes, bare or
+with the board's prefix: `feat/42-dark-mode` and `feat/CANGURO-42-dark-mode` both
+resolve to item 42. Then it does two things:
 
 1. **Posts the PR link to the item** — the one fact the board cannot derive on its
    own. A board on one host knows nothing about a repo on another, so this link

@@ -2,7 +2,8 @@
 name: baton-catch-up
 description: Recover what already happened — on a work-item, or in another project you own — before asking anyone. Use when the user says "what did engine do", "catch me up on X", "ponete al día con", "what's the state of #42", or when the task touches a project/item someone else (or another session) has been working on.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
+credential: agent
 ---
 
 # baton-catch-up

@@ -4,7 +4,8 @@ description: >
   Approve a triaged work-item: advance it to the board's approved stage. Use when
   the user says "approve X", "aprobar idea", or confirms approval after triage.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
+credential: agent
 ---
 
 # baton approve
@@ -22,7 +23,7 @@ Approve a reviewed item — moves it to the "approve" stage (config alias, defau
 2. **Confirm priority** with the user (drives implementation order); adjust the
    priority label if needed:
    ```bash
-   baton labels <id> --remove priority:medium --add priority:high
+   baton priority <id> --to high     # urgent | high | medium | low | none
    ```
 3. **Approve** (advance to the approved stage):
    ```bash

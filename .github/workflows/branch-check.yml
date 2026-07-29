@@ -1,0 +1,58 @@
+name: Branch Protection Check
+
+on:
+  pull_request:
+    branches: [master, develop]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  branch-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PR base branch
+        run: |
+          echo "PR #${{ github.event.pull_request.number }}"
+          echo "Head: ${{ github.head_ref }}"
+          echo "Base: ${{ github.base_ref }}"
+
+      # Los prefijos son los mismos tipos que usamos en los commits (feat:, fix:,
+      # chore:, hotfix:), para no mantener dos vocabularios. Sin `release/`: un
+      # release es un PR directo develop -> master, no una rama (ver baton-ship).
+      # `feature/` y `bugfix/` los sigue aceptando el hook, pero no son la forma
+      # canónica — de ahí el warning y no un error.
+      - name: Validate branch naming (git flow)
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if ! echo "$BRANCH" | grep -qE '^(feat|fix|chore|hotfix)/'; then
+            echo "::warning:: Branch '$BRANCH' — se espera feat/ fix/ chore/ o hotfix/"
+          fi
+          echo "Branch: $BRANCH OK"
+
+      # El nombre de rama no es cosmético: hooks/pr-comment-reminder saca de ahí el
+      # id del item para postear el link del PR en el board. Sin id no rompe nada,
+      # pero ese PR no queda enlazado y nadie se entera.
+      - name: Warn when the branch carries no item id
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if ! echo "$BRANCH" | grep -qE '^[a-z]+/([A-Za-z]+-)?[0-9]+-'; then
+            echo "::warning:: '$BRANCH' no lleva id de item (<prefijo>/<id>-<slug>);"
+            echo "::warning:: el PR no se va a enlazar solo al board"
+          fi
+
+      - name: Check PR has description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "$PR_BODY" ] || [ ${#PR_BODY} -lt 10 ]; then
+            echo "::error:: El PR debe tener una descripción (mínimo 10 caracteres)"
+            exit 1
+          fi
+
+      - name: Check no merge conflict markers
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}..HEAD | xargs grep -lE '^(<<<<<<<|=======|>>>>>>>)' 2>/dev/null; then
+            echo "::error:: Marcadores de conflicto encontrados en el diff"
+            exit 1
+          fi

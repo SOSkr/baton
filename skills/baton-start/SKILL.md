@@ -5,7 +5,8 @@ description: >
   the feature branch, and drive it to Done/Shipped. Use when the user says
   "start X", "implement idea", "empezar/implementar", "work on <id>".
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
+credential: agent
 ---
 
 # baton start
@@ -15,14 +16,23 @@ stage; the code lives in the target repo (which may differ from where the item l
 
 ## Start
 1. **Verify** approved: `baton show <id>` (check stage).
-2. **Identify the target repo** (from the item's area/service label or the user).
-   Implementation happens **there**.
+2. **Identify the target repo** — `baton doctor` prints it. A single-repo project has
+   `repo:`; a multi-repo one has a `repos:` map keyed by the `area:` label value, so
+   the item's own label says where the work goes. Ask the user only if neither
+   resolves. Implementation happens **there**, not where the board lives.
 3. **Feature branch** (in the target repo):
    ```bash
-   git checkout develop && git pull && git checkout -b feature/<id>-<slug>
+   git checkout "$(baton config git.integration)" && git pull
+   git checkout -b "feat/<id>-<slug>"
    ```
+   Prefix is one of `feat` · `fix` · `chore` · `hotfix` — the same words the commit
+   types use. **The `<id>` is load-bearing**, not decoration: the optional PR hook
+   reads it off the branch to post the PR link back to the item, and a branch without
+   one silently never gets linked.
 4. **Mark In Progress**: `baton start <id>` (config alias, default `In Progress`).
-5. **Break down** the acceptance criteria and implement.
+5. **Break down** the acceptance criteria and implement. If the body has an
+   "Out of scope", stay out of it; if it has a "Verification", run it and report the
+   result before advancing the stage.
 
 ## During
 - Commits reference the item id; PR body references the item (cross-repo items don't
@@ -53,20 +63,29 @@ decisions taken, paths rejected and why, the surprise you hit. Not a changelog:
 Before writing, `baton show <id> --comments` — if it is already said, don't repeat it.
 
 ## Finish
-- On merge to the integration branch: `baton advance <id> --to Done` (or your board's
-  done stage).
+- **Do not advance the item here.** A merged PR is not the same as an item that did
+  what it said — `baton-verify` checks the diff against the acceptance criteria, the
+  `Verification` and the scope boundary, and **it** is what moves the item on. Hand
+  off to it; if the project declares `stages.verify`, baton refuses the jump anyway.
 - On release/deploy: `baton ship <id>` (config alias, default `Deployed`), then close
   if that's your terminal state.
 
 ## Multi-part items (checklist)
-If the item has a "Checklist" (several areas/services), on finishing **your** part:
-tick your box + link your PR in the item body:
+If the item has a "Checklist" — one box per repo, or one box per phase of a wide
+mechanical change — then on finishing **your** part: tick your box + link your PR
+in the item body:
 ```bash
 baton body <id> --body "$(...updated body with your box ticked...)"
 ```
 **Do not** mark Done or close while any box is unticked — the item stays In Progress
 until the last part lands. Only the final part → Done, then Ship/close. A single
 part's release must not close the item if siblings remain.
+
+**Phase boxes are ordered; repo boxes are not.** Never start a phase while an earlier
+one is still open. In an expand–contract that is the entire point: run `contract`
+before the migrate batches have landed and you delete something that still has
+callers. The board does not enforce this — the order in the body and the test suite
+do, so read the body before you pick a box.
 
 ## Notes
 - Keep the item's stage current as work progresses (`baton list --stage "In Progress"`).
