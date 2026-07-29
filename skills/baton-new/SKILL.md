@@ -5,7 +5,7 @@ description: >
   user says "new item/idea/ticket", "nueva idea", "file X", "register X", or wants
   to formalize a concept into a tracked issue.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
 credential: agent
 ---
 

@@ -1,12 +1,12 @@
 [project]
-name = "baton"
+name = "baton-board"          # `baton` está tomado en PyPI; el comando sigue siendo `baton`
 version = "0.1.0"
-description = "Work-item lifecycle over a board (GitHub Projects, Plane, ...) — backend-agnostic CLI + skills"
+description = "Work-item lifecycle from idea to shipped — agent- and backend-agnostic CLI + agent skills"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Oscar Silva" }]
-keywords = ["cli", "project-management", "github-projects", "plane", "claude-code", "agent-skills"]
+keywords = ["cli", "project-management", "plane", "claude-code", "opencode", "agent-skills"]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",

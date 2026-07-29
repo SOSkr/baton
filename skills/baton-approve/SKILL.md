@@ -4,7 +4,7 @@ description: >
   Approve a triaged work-item: advance it to the board's approved stage. Use when
   the user says "approve X", "aprobar idea", or confirms approval after triage.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
 credential: agent
 ---
 

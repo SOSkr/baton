@@ -6,7 +6,7 @@ description: >
   Use when the user says "roadmap", "crear épica", "qué falta para X", "what's left
   on <epic>", "plan the next quarter".
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton), a backend with native grouping (Plane modules)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board), a backend with native grouping (Plane modules)
 credential: agent
 ---
 

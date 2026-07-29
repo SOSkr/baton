@@ -5,7 +5,7 @@ description: >
   label axes — then wire baton to it. Use when the user says "new project", "crear
   proyecto", "bootstrap X", "set up a repo and board for X".
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton), gh (github) or a Plane API key
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board), gh (github) or a Plane API key
 credential: admin
 ---
 

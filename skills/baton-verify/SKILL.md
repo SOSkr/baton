@@ -6,7 +6,7 @@ description: >
   says "validate PR", "does this PR do the task", "revisar el PR de X", "verificar
   <id>", or before advancing an item to Done.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton), gh
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board), gh
 credential: agent
 ---
 

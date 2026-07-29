@@ -5,7 +5,7 @@ description: >
   verdict. Use when the user says "triage X", "review idea/item", "evaluate X",
   "revisar idea". Does not change the stage — records the assessment.
 license: MIT
-compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+compatibility: requires Python 3.11+, baton CLI (pipx install baton-board)
 credential: agent
 ---
 
