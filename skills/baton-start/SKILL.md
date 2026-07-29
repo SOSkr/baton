@@ -6,6 +6,7 @@ description: >
   "start X", "implement idea", "empezar/implementar", "work on <id>".
 license: MIT
 compatibility: requires Python 3.11+, baton CLI (pipx install baton)
+credential: agent
 ---
 
 # baton start
@@ -15,14 +16,18 @@ stage; the code lives in the target repo (which may differ from where the item l
 
 ## Start
 1. **Verify** approved: `baton show <id>` (check stage).
-2. **Identify the target repo** (from the item's area/service label or the user).
-   Implementation happens **there**.
+2. **Identify the target repo** — `baton doctor` prints it. A single-repo project has
+   `repo:`; a multi-repo one has a `repos:` map keyed by the `area:` label value, so
+   the item's own label says where the work goes. Ask the user only if neither
+   resolves. Implementation happens **there**, not where the board lives.
 3. **Feature branch** (in the target repo):
    ```bash
    git checkout develop && git pull && git checkout -b feature/<id>-<slug>
    ```
 4. **Mark In Progress**: `baton start <id>` (config alias, default `In Progress`).
-5. **Break down** the acceptance criteria and implement.
+5. **Break down** the acceptance criteria and implement. If the body has an
+   "Out of scope", stay out of it; if it has a "Verification", run it and report the
+   result before advancing the stage.
 
 ## During
 - Commits reference the item id; PR body references the item (cross-repo items don't

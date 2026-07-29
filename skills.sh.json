@@ -6,12 +6,22 @@
       "title": "Workflow",
       "description": "Core lifecycle verbs for work-item management.",
       "skills": [
+        "baton-roadmap",
         "baton-new",
         "baton-triage",
         "baton-approve",
         "baton-start",
+        "baton-verify",
         "baton-ship",
         "baton-reject"
+      ]
+    },
+    {
+      "title": "Setup",
+      "description": "Create a project and wire baton to it. Admin credential, once per project.",
+      "skills": [
+        "baton-bootstrap",
+        "baton-migrate"
       ]
     },
     {

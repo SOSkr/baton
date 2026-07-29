@@ -19,18 +19,23 @@ class FakeAdapter(Adapter):
         self._n = 0
         self._comments: list[tuple[str, str]] = []
 
+    def probe(self): return "fake backend, always reachable"
+
+    # deliberately does NOT implement the optional group capability — the base
+    # class must degrade with a clear error, not an AttributeError
+
     def list_stages(self): return list(self.STAGES)
 
-    def create(self, title, body, labels):
+    def create(self, title, body, labels, priority=None):
         self._n += 1
         it = Item(id=str(self._n), title=title, url=f"fake://{self._n}",
-                  labels=list(labels), body=body, stage=None)
+                  labels=list(labels), body=body, stage=None, priority=priority)
         self._items[it.id] = it
         return it
 
     def get(self, item_id): return self._items[item_id]
 
-    def list(self, *, stage=None, label=None, state="open"):
+    def list(self, *, stage=None, label=None, state="open", group=None):
         out = []
         for it in self._items.values():
             if state != "all" and it.state != state:
@@ -109,15 +114,15 @@ def test_config_load(tmp_path=None):
     d = Path(tempfile.mkdtemp())
     (d / ".baton").mkdir()
     (d / ".baton" / "config.yaml").write_text(yaml.safe_dump(
-        {"backend": "github", "target": {"repo": "owner/repo", "project": 5}}))
+        {"backend": "plane", "target": {"base_url": "https://p", "workspace": "w", "project": "APP"}}))
     cfg = load(start=d)
-    assert cfg.backend == "github" and cfg.target["project"] == 5
+    assert cfg.backend == "plane" and cfg.target["project"] == "APP"
 
 
 def test_verb_stage():
     from baton.cli import _verb_stage
     from baton.config import Config
-    c = Config(backend="github", stages={"approve": "Aceptada"})
+    c = Config(backend="plane", stages={"approve": "Aceptada"})
     assert _verb_stage(c, "approve") == "Aceptada"   # config alias wins
     assert _verb_stage(c, "start") == "In Progress"  # default
     assert _verb_stage(c, "ship") == "Deployed"
@@ -129,7 +134,7 @@ def test_backward_flag():
     from baton.config import Config
     # FakeAdapter.STAGES = ["Review","Approved","In Progress","Done"]
     a = FakeAdapter()
-    cfg = Config(backend="github", review_label="revisar-cambio")
+    cfg = Config(backend="plane", review_label="revisar-cambio")
     it = a.create("x", "", [])
     a.set_stage(it.id, "Approved")
 
@@ -148,7 +153,7 @@ def test_backward_flag():
     a2 = FakeAdapter()
     it2 = a2.create("y", "", [])
     a2.set_stage(it2.id, "Approved")
-    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False), a2, Config(backend="github"))
+    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False), a2, Config(backend="plane"))
     assert a2.get(it2.id).labels == []
 
 
