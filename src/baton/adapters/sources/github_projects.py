@@ -104,7 +104,7 @@ class GitHubProjectsSource:
         stage = self._stage_map().get(int(item_id)) if self.project_number else None
         return Item(id=str(j["number"]), title=j["title"], url=j["url"],
                     stage=stage, state=j["state"].lower(),
-                    labels=[l["name"] for l in j.get("labels", [])], body=j.get("body", ""))
+                    labels=[lb["name"] for lb in j.get("labels", [])], body=j.get("body", ""))
 
     def list(self, *, stage=None, label=None, state="open") -> list[Item]:
         args = ["issue", "list", "--repo", self.repo, "--state", state, "--limit", "200",
@@ -120,7 +120,7 @@ class GitHubProjectsSource:
                 continue
             items.append(Item(id=str(j["number"]), title=j["title"], url=j["url"],
                               stage=st, state=j["state"].lower(), body=j.get("body", ""),
-                              labels=[l["name"] for l in j.get("labels", [])]))
+                              labels=[lb["name"] for lb in j.get("labels", [])]))
         return items
 
     def comments(self, item_id: str) -> list[Comment]:

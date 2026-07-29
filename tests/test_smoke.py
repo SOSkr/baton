@@ -59,7 +59,7 @@ class FakeAdapter(Adapter):
 
     def set_labels(self, item_id, add=None, remove=None):
         it = self._items[item_id]
-        it.labels = [l for l in it.labels if l not in (remove or [])] + list(add or [])
+        it.labels = [lb for lb in it.labels if lb not in (remove or [])] + list(add or [])
 
     def edit_body(self, item_id, body): self._items[item_id].body = body
 
