@@ -1,0 +1,62 @@
+name: publish
+
+# Dispara al PUBLICAR un GitHub Release, no al pushear un tag: publicar en PyPI es
+# irreversible —una versión no se sobrescribe ni se reusa— así que el disparador es
+# un acto humano deliberado, no un efecto colateral de un push.
+on:
+  release:
+    types: [published]
+
+# Nada por defecto; cada job pide lo mínimo.
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # El error que no se puede deshacer: taggear v0.2.0 con pyproject en 0.1.0
+      # publica 0.1.0, y ese número queda quemado en PyPI para siempre. Se chequea
+      # antes de construir.
+      - name: El tag tiene que coincidir con la versión de pyproject
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          echo "tag=$tag  pyproject=$ver"
+          [ "$tag" = "$ver" ] || {
+            echo "::error::el tag $GITHUB_REF_NAME no coincide con la versión $ver de pyproject.toml"
+            exit 1
+          }
+
+      - run: pip install build
+      - run: python -m build
+      - run: ls -l dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Tiene que coincidir con el "Environment name" del pending publisher en PyPI.
+    # Además es donde se le puede colgar una aprobación manual: con eso, ni un
+    # release disparado publica sin que un humano lo apruebe.
+    environment: pypi
+    permissions:
+      # Esto es lo que reemplaza al token de API. OIDC: GitHub firma una identidad
+      # efímera y PyPI la valida contra el pending publisher. No hay secreto
+      # guardado, nada que rotar, nada que filtrar.
+      id-token: write
+    steps:
+      # A propósito NO hace checkout: el único job con la credencial no corre nada
+      # del repo, solo sube lo que el job anterior construyó.
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
