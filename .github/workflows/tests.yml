@@ -11,7 +11,7 @@ on:
     types: [opened, edited, synchronize, reopened]
 
 jobs:
-  test:
+  pytest:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -42,3 +42,20 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           args: check --output-format=github
+
+  # Job agregador, y el ÚNICO nombre que la branch protection tiene que conocer.
+  # Una matriz reporta `pytest (3.11)`, `pytest (3.12)`… — nunca un check llamado
+  # `pytest`. Si la protección exigiera los nombres de la matriz, agregar o sacar
+  # una versión de Python rompería silenciosamente todo PR hasta que alguien con
+  # admin actualizara la config. Acá el contexto requerido es siempre `test`, y la
+  # matriz puede cambiar sin que nadie toque la protección.
+  test:
+    needs: [pytest, lint]
+    if: always()          # sin esto, una matriz roja SALTEA este job y el check
+    runs-on: ubuntu-latest #  requerido nunca reporta: el PR cuelga igual
+    steps:
+      - name: Gate
+        run: |
+          echo "pytest=${{ needs.pytest.result }}  lint=${{ needs.lint.result }}"
+          [ "${{ needs.pytest.result }}" = "success" ] || exit 1
+          [ "${{ needs.lint.result }}" = "success" ] || exit 1
