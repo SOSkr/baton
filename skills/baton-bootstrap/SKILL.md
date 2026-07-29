@@ -62,18 +62,42 @@ and are created later, deliberately, by `baton-roadmap` — not here.
 The point of the credential split. The agent opens PRs; it must not be able to merge
 its own work unreviewed.
 
+**Protect both branches, not just production.** The agent touches the integration
+branch on **every item** and production **once per release** — protecting only
+production guards the branch they touch least. Leave integration open and an agent
+with push rights skips the PR, the review and CI entirely, which is the whole thing
+the credential split exists to prevent.
+
 ```bash
-gh api -X PUT repos/<owner>/<name>/branches/master/protection \
-  -f "required_pull_request_reviews[required_approving_review_count]=1" \
-  -F "enforce_admins=false" -F "required_status_checks=null" -F "restrictions=null"
+for br in "$(baton config git.production)" "$(baton config git.integration)"; do
+  gh api -X PUT "repos/<owner>/<name>/branches/$br/protection" --input - <<JSON
+{
+  "required_pull_request_reviews": { "required_approving_review_count": 1 },
+  "required_status_checks": { "strict": false, "contexts": ["<your check>"] },
+  "enforce_admins": false,
+  "restrictions": null
+}
+JSON
+done
 ```
 
-Adjust to your policy. Two things to decide explicitly:
+Three decisions, each on purpose:
+
 - **required reviews ≥ 1** — this is what stops an agent self-merging, because GitHub
   does not let a PR author approve their own PR.
 - **`enforce_admins`** — leave it `false` and `baton-ship` can merge releases with
   `--admin`; set it `true` and every release needs a human approval. Pick one on
   purpose; the default here is not a recommendation.
+- **which checks** — require **one aggregated name**, never the names a build matrix
+  produces. A matrix reports `test (3.11)`, `test (3.12)`, … and no plain `test`;
+  requiring those means that adding a version later blocks **every** PR until someone
+  with admin edits the protection — and it does not fail, it hangs, waiting for a
+  status that will never arrive. Have CI expose a single job that depends on the rest,
+  and require that one name.
+
+baton does not ship your CI — the workflow is your project's language and tooling. What
+it asks is that the repo produce a check with a **stable** name and that the protection
+require it. Set the protections after that check exists, or the first PR will hang.
 
 ## 5. Label axes
 
