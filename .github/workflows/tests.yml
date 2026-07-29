@@ -13,12 +13,32 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # pyproject declara requires-python = ">=3.11". Probar solo 3.11 es prometer
+      # tres versiones y verificar una.
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - run: pip install pyyaml
-      - run: python tests/test_smoke.py
-      - run: python tests/test_plane_adapter.py
-      - run: python tests/test_config.py
+          python-version: ${{ matrix.python-version }}
+      - run: pip install pyyaml pytest
+      # pytest descubre. Listar los archivos a mano hacía que un test nuevo se
+      # saltara en silencio.
+      - run: python -m pytest -q
+      # 17 casos de bash que hasta ahora no corría nadie.
+      - run: bash hooks/test-pr-comment-reminder.sh
+      - run: bash -n skills/baton-ship/scripts/ship-pr.sh
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Las reglas se declaran en pyproject.toml [tool.ruff.lint], no acá y no por
+      # defaults: los defaults de ruff cambiaron entre 0.15 y 0.16, así que dejarlo
+      # implícito hace que el lint mute solo cuando el runner actualiza.
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check --output-format=github

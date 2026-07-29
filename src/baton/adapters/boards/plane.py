@@ -117,7 +117,7 @@ class PlaneAdapter(Adapter):
     def _discover_labels(self) -> dict:
         if self._labels is None:
             rows = self._request("GET", f"{self.workspace}/projects/{self._proj()}/labels/")
-            self._labels = {l["name"].lower(): l["id"] for l in rows.get("results", [])}
+            self._labels = {lb["name"].lower(): lb["id"] for lb in rows.get("results", [])}
         return self._labels
 
     def _label_id(self, name: str) -> str:
@@ -173,7 +173,7 @@ class PlaneAdapter(Adapter):
             url=f"{self.base_url}/{self.workspace}/browse/{self.project_identifier}-{j['sequence_id']}/",
             stage=stage,
             state="closed" if group in _CLOSED_GROUPS else "open",
-            labels=[self._label_name(l) for l in (j.get("labels") or [])],
+            labels=[self._label_name(lb) for lb in (j.get("labels") or [])],
             body=j.get("description_html", ""),
         )
 
@@ -233,7 +233,7 @@ class PlaneAdapter(Adapter):
 
     def create(self, title: str, body: str, labels: list[str],
                priority: str | None = None) -> Item:
-        label_ids = [self._label_id(l) for l in labels]
+        label_ids = [self._label_id(lb) for lb in labels]
         payload = {"name": title, "description_html": body or "<p></p>", "labels": label_ids}
         if priority:
             payload["priority"] = priority
@@ -265,7 +265,7 @@ class PlaneAdapter(Adapter):
         if stage:
             items = [i for i in items if (i.stage or "").lower() == stage.lower()]
         if label:
-            items = [i for i in items if label.lower() in (l.lower() for l in i.labels)]
+            items = [i for i in items if label.lower() in (lb.lower() for lb in i.labels)]
         if state != "all":
             items = [i for i in items if i.state == state]
         return items
@@ -301,8 +301,8 @@ class PlaneAdapter(Adapter):
         uuid = self._issue_uuid(item_id)
         j = self._request("GET", f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/")
         current = set(j.get("labels") or [])
-        current |= {self._label_id(l) for l in (add or [])}
-        current -= {self._label_id(l) for l in (remove or [])}
+        current |= {self._label_id(lb) for lb in (add or [])}
+        current -= {self._label_id(lb) for lb in (remove or [])}
         self._request("PATCH", f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/",
                        {"labels": list(current)})
 
