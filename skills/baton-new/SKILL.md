@@ -24,13 +24,23 @@ Config: `.baton/config.yaml` (backend, target, label axes, stage aliases).
 
    | Template | When |
    |---|---|
-   | `task.md` | the default — one deliverable. Has the optional multi-repo Checklist. |
-   | `epic.md` | several items under one outcome; carries the target date |
-   | `subtask.md` | one part of an epic; inherits the parent's user story |
+   | `task.md` | the default — one deliverable. Has the optional Checklist, per repo or per phase. |
+   | `subtask.md` | one part of a bigger item; inherits the parent's user story |
    | `bug.md` | something is broken — the repro is the verification |
 
-   Ambiguous? Ask. A bug filed as a task loses the repro; a task filed as an epic
-   never closes.
+   Ambiguous? Ask — a bug filed as a task loses the repro.
+
+   **An epic is not one of these.** It is a native container on the board carrying its
+   own target date and live progress, not an item body, so `baton new` cannot create
+   one. Several items under one outcome go into an epic via `baton-roadmap`; each of
+   those items is still filed here.
+
+   **Size it against both tests.** One `Verification` that proves the *whole* thing
+   done — two unrelated checks are two items. And one fresh context window for
+   whoever implements it — one thing too wide to hold at once is still too big, and
+   an agent that compacts halfway through ends up contradicting its own start.
+   The exception is a wide mechanical change that no slice can make green on its
+   own: that is **one** item with a Checklist box per phase, not several items.
 3. **Write the body** from that template. Fill a section or delete it — placeholder
    text left in is worse than no section. Follow the project's language convention
    if it has one. `Verification` and `Out of scope` are optional for human-executed
