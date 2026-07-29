@@ -58,6 +58,8 @@ check "requires the check"       'grep -q "\"contexts\": *\[ *\"test\" *\]" <(jq
 check "review count defaults 1"  'jq -e ".required_pull_request_reviews.required_approving_review_count == 1" "$TMP/log.body" >/dev/null'
 check "enforce_admins off"       'jq -e ".enforce_admins == false" "$TMP/log.body" >/dev/null'
 
+check "deletes merged branches"  'grep -q "PATCH repos/acme/app -F delete_branch_on_merge=true" "$TMP/log"'
+
 rc=$(run --no-checks)
 check "--no-checks nulls them"   'jq -e ".required_status_checks == null" "$TMP/log.body" >/dev/null'
 

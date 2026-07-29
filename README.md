@@ -350,7 +350,7 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
 ## Requirements
 
 - `gh` CLI, authenticated, with `project` scope (GitHub backend).
-- Python ≥ 3.11. Run with `uv run baton ...` or `pipx install .`.
+- Python ≥ 3.11: `pipx install baton-board` (or `uv run baton ...` from a clone).
 
 The distribution is **`baton-board`** (`baton` was already taken on PyPI by an
 unrelated iRODS wrapper); the command it installs is `baton`.
@@ -372,7 +372,8 @@ disagree, because a wrong version number on PyPI cannot be taken back.
 ## Status
 
 Plane board adapter and the GitHub code-host client done, both verified live.
-Publishing pending: skills.sh, and PyPI as `baton-board`.
+Published: [`baton-board` on PyPI](https://pypi.org/project/baton-board/), and
+`npx skills add SOSkr/baton` for the skills.
 
 ## License
 

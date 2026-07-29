@@ -93,6 +93,12 @@ body=$(jq -n \
        restrictions: null
      }')
 
+# Setting de repo, no de protección, pero la misma clase de política: agnóstica del
+# lenguaje y se pone una vez. Con agentes pesa más de lo normal — un día de trabajo
+# son veinte ramas, y sin esto quedan las veinte colgando en el remoto.
+gh api -X PATCH "repos/$repo" -F delete_branch_on_merge=true > /dev/null
+echo "  delete_branch_on_merge: true"
+
 failed=0
 for br in "$production" "$integration"; do
     if [ "$br" = "$production" ] && [ "$br" = "$integration" ] && [ -n "${done_once:-}" ]; then
