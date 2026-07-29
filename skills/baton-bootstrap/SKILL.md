@@ -78,6 +78,15 @@ the branch names from `baton config`, applies the same policy to both, and **rea
 one back**: a PUT that returned 200 and a branch that is actually protected are two
 different claims.
 
+A **multi-repo project needs `--all-repos`**, which reads every code host from
+`repos:`/`repo:` in the config and does all of them. Without it you protect the repo
+you happen to be standing in, and nothing tells you the second one is still open —
+`baton doctor` reports the state per repo, so check there afterwards. During bootstrap
+the config does not exist yet, so use `--repo` then and `--all-repos` on the re-run.
+
+A repo where the credential lacks admin is **skipped, not fatal**: protecting two of
+three and saying so beats protecting none.
+
 It **refuses to guess** about checks. Pass `--check <name>`, or `--no-checks` to say
 you mean it — a protection with no required check lets a red PR merge, and one naming
 a check that does not exist yet makes every PR hang. Neither should arrive by accident.
