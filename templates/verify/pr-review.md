@@ -1,3 +1,5 @@
+> *Checked by an agent, not a human.*
+
 ## Verification — #<item> vs PR #<n>
 
 **Verdict: <PASS / FAIL / INCONCLUSIVE>**
