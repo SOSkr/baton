@@ -53,3 +53,24 @@ the **judgment**. Triage records a verdict; it does not move the stage (approval
 - **≥ 15/25** → approve · **10-14** → revise (specific improvements) · **< 10** → reject.
 
 Always explain WHY, not just the number.
+
+## When the verdict is "revise"
+
+`approve` and `reject` each have a skill behind them. `revise` has none, and it is the
+most common verdict — so it is on you to say **what** to sharpen, not just that it needs
+sharpening. Check these four first, because they are what the rest of the lifecycle
+actually reads:
+
+| Gap | What it breaks downstream |
+|---|---|
+| criteria that cannot be checked one at a time | `baton-verify` has nothing to produce a per-criterion verdict against |
+| no `Verification`, or two unrelated ones | unverifiable, or it is two items — verify scores it INCONCLUSIVE |
+| `Out of scope` written as file paths | paths rot while the item waits, and a stale path makes the scope check pass for the wrong reason |
+| too wide to hold in one fresh context window | whoever implements it compacts halfway and contradicts their own start |
+
+**Sharpen by interviewing the author, not by rewriting the item yourself.** Every gap
+above is a missing *decision*, and those belong to whoever filed it — one question at a
+time, with your recommended answer, looking up whatever is a fact rather than asking.
+Then `baton body <id>` with the result.
+
+The item does not move: `revise` is a verdict, not a stage.
