@@ -58,8 +58,10 @@ decisions taken, paths rejected and why, the surprise you hit. Not a changelog:
 Before writing, `baton show <id> --comments` — if it is already said, don't repeat it.
 
 ## Finish
-- On merge to the integration branch: `baton advance <id> --to Done` (or your board's
-  done stage).
+- **Do not advance the item here.** A merged PR is not the same as an item that did
+  what it said — `baton-verify` checks the diff against the acceptance criteria, the
+  `Verification` and the scope boundary, and **it** is what moves the item on. Hand
+  off to it; if the project declares `stages.verify`, baton refuses the jump anyway.
 - On release/deploy: `baton ship <id>` (config alias, default `Deployed`), then close
   if that's your terminal state.
 

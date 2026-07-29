@@ -15,4 +15,5 @@ The concrete change. One sitting's worth of work.
 `<command>` — expected: <result>.
 
 ## Out of scope
-`<path/or/area>` — belongs to a sibling subtask, not this one.
+<what belongs to a sibling subtask, not this one — named as behaviour or module,
+not a file path.>
