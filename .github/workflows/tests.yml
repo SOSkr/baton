@@ -5,6 +5,10 @@ on:
     branches: [master, develop]
   pull_request:
     branches: [master, develop]
+    # `edited` incluye el cambio de rama base. Sin él, un PR apilado que GitHub
+    # reapunta a develop al mergear su base se queda en amarillo para siempre:
+    # el default de types es [opened, synchronize, reopened] y ninguno dispara.
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
   test:
