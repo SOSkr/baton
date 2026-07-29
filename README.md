@@ -355,6 +355,11 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
 The distribution is **`baton-board`** (`baton` was already taken on PyPI by an
 unrelated iRODS wrapper); the command it installs is `baton`.
 
+Releases publish themselves: `.github/workflows/publish.yml` fires when a GitHub
+Release is **published** and uploads via **Trusted Publishing** (OIDC) — no API token
+is stored anywhere. It refuses to build when the tag and `pyproject.toml`'s version
+disagree, because a wrong version number on PyPI cannot be taken back.
+
 ## Roadmap
 
 - **`baton search`** — embeddings-based retrieval, gated on scale (hundreds+ items
