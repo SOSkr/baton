@@ -23,6 +23,11 @@ _DEFAULT_TOKENS = {
 BACKENDS = ("plane",)
 ROLES = ("agent", "admin")
 
+# The two branches baton's skills reach for. Names vary per project — trunk-based
+# repos have no integration branch at all, and `main` is as common as `master` — so
+# they are config, not constants baked into a skill.
+_DEFAULT_GIT = {"integration": "develop", "production": "master"}
+
 
 def github_token_env(role: str) -> str:
     """GitHub's var for `role`, regardless of which backend holds the board. With a
@@ -38,6 +43,7 @@ class Config:
     stages: dict = field(default_factory=dict)   # verb->stage aliases: {approve: Approved, ...}
     tokens: dict = field(default_factory=dict)   # role->ENV VAR NAME: {agent: GH_TOKEN, admin: GH_ADMIN_TOKEN}
     repo: str | None = None                       # OWNER/REPO where the CODE lives, when the board is elsewhere
+    git: dict = field(default_factory=lambda: dict(_DEFAULT_GIT))  # {integration, production}
     repos: dict = field(default_factory=dict)     # multi-repo project: {area-label-value: OWNER/REPO}
     migrate_from: dict = field(default_factory=dict)  # read-only source board: {repo, project}
     review_label: str | None = None               # label applied on UNEXPECTED (backward) transitions
@@ -135,6 +141,7 @@ def load_file(p: Path) -> Config:
         stages=data.get("stages", {}) or {},
         tokens=data.get("tokens", {}) or {},
         repo=data.get("repo"),
+        git={**_DEFAULT_GIT, **(data.get("git") or {})},
         repos=data.get("repos", {}) or {},
         migrate_from=data.get("migrate_from", {}) or {},
         review_label=data.get("review_label"),

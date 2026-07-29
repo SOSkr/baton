@@ -43,8 +43,9 @@ body, waits for checks, merges with `--admin` (branch protection asks for a revi
 you cannot give yourself), then waits for the deploy-verification workflow run
 matching the merged SHA and fails if that run fails.
 
-Defaults are `--base master --head develop --workflow verify-deploy`; override per
-repo:
+Base and head default to `baton config git.production` and `git.integration`, so a
+repo that calls its branches something else needs no flag. `--workflow` defaults to
+`verify-deploy`. Override any of them:
 
 ```bash
 bash .../ship-pr.sh "summary" --base main --head dev --workflow deploy

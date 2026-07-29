@@ -249,6 +249,22 @@ def cmd_export(a, ad, cfg):
     return 0
 
 
+def cmd_config(a, ad, cfg):
+    """Print one config value by dotted path — `baton config git.integration`.
+
+    Exists so a skill or a shell script can ASK instead of hardcoding. A branch name
+    baked into a SKILL.md is wrong for every project that names things differently,
+    and the skills are installed globally.
+    """
+    cur = cfg
+    for part in a.key.split("."):
+        cur = cur.get(part) if isinstance(cur, dict) else getattr(cur, part, None)
+        if cur is None:
+            raise BatonError(f"config key {a.key!r} is not set in {cfg.path}")
+    print(json.dumps(cur) if isinstance(cur, (dict, list)) else cur)
+    return 0
+
+
 def cmd_doctor(a, ad, cfg):
     print(f"baton {__version__}")
     print(f"config: {cfg.path}")
@@ -411,6 +427,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--state", default="all", choices=["open", "closed", "all"])
     s.set_defaults(fn=cmd_export)
 
+    s = sub.add_parser("config", help="print one config value by dotted path")
+    s.add_argument("key", metavar="KEY", help="e.g. git.integration, target.repo")
+    s.set_defaults(fn=cmd_config)
+
     s = sub.add_parser("doctor", help="validate config + backend discovery")
     s.set_defaults(fn=cmd_doctor)
     return p
@@ -426,6 +446,8 @@ def main(argv=None) -> int:
         cfg = load()
         if getattr(args, "project", None):
             cfg = load_project(args.project, cfg)
+        if args.cmd == "config":             # reads the config, never the backend
+            return args.fn(args, None, cfg) or 0
         ad = get_adapter(cfg, args.role)
         rc = args.fn(args, ad, cfg)
         return rc or 0

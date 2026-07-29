@@ -27,14 +27,14 @@ prompts, so a new agent is a symlink into wherever that agent reads skills from.
 ```
 baton/
 ├── src/baton/
-│   ├── cli.py            # verbs: init/export/new/priority/verify/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
+│   ├── cli.py            # verbs: init/config/export/new/priority/verify/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
 │   ├── base.py            # Adapter contract + Item dataclass — every backend implements this
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
 │   └── adapters/          # three families — see docs/adapters/
 │       ├── boards/        # read-WRITE: where item state lives (plane.py)
 │       ├── sources/       # read-ONLY: old trackers, read once to migrate off (github_projects.py)
 │       └── repos/         # the code host: permissions, git work (github.py)
-├── docs/adapters/         # how to write each family, with checklists
+├── docs/                  # adapters/ (how to write each family) · git-flow.md · design/
 ├── skills/                # the judgment layer, calls the CLI. Each skill's templates/ is a symlink into ↓
 ├── templates/             # item bodies (task/subtask/bug), epic description, triage verdict, PR review
 ├── commands/              # slash triggers for agents that use them (OpenCode)
@@ -86,6 +86,9 @@ tokens:               # optional — env var NAMES per credential role (see belo
   admin: PLANE_ADMIN_API_KEY
 review_label: needs-review   # optional — see below
 
+git:                  # optional — branch names; defaults shown. See docs/git-flow.md
+  integration: develop
+  production: master
 repo: OWNER/REPO      # where the CODE lives — the board knows nothing about git
 repos:                # multi-repo project: area-label value → repo
   engine: OWNER/app-engine
@@ -151,6 +154,22 @@ over that stage, so an item cannot reach Done without passing through verificati
 It gates the stage, not the work — two deliberate `advance` calls still get you
 through — but skipping stops being an oversight nobody notices and becomes a move
 recorded in the board's own history. Projects that do not declare it are never gated.
+
+## Git flow
+
+Work branches off the integration branch, reaches it by PR, and a release is a **direct
+PR integration → production** — no release branches. Both branch names are config, so a
+repo using `main`, or trunk-based with no integration branch at all, changes two lines
+instead of editing globally-installed skills:
+
+```yaml
+git: {integration: develop, production: master}
+```
+
+`baton config git.integration` is what the skills and `ship-pr.sh` read. Branch names
+follow `<prefix>/<id>-<slug>` and the **id is load-bearing** — the PR hook reads it to
+link the PR back to the item. Full rules and where each one is enforced:
+**[docs/git-flow.md](docs/git-flow.md)**.
 
 `review_label` is applied only on **unexpected backward transitions** (e.g. `Approved → Review`), detected from the board's real stage order. Normal forward flow (new → review → approve → start → ship) is never flagged — that's the expected process. Backward moves get the label so a human can double-check what happened.
 

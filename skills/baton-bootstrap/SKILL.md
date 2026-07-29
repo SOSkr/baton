@@ -43,6 +43,9 @@ name · who else needs access.
 gh repo create <owner>/<name> --private --add-readme
 gh repo clone <owner>/<name> && cd <name>
 git checkout -b develop && git push -u origin develop     # the integration branch
+# Name it whatever the project agreed in step 1, then record both in .baton/config.yaml:
+#   git: {integration: develop, production: master}
+# Trunk-based? Skip this branch and set integration to the production one.
 ```
 
 ## 3. Create the board
