@@ -6,34 +6,32 @@ is not a board and knows nothing about work-items.
 Contract: [`src/baton/adapters/repo/base.py`](../../src/baton/adapters/repo/base.py) → `RepoBase`.
 Reference implementation: [`src/baton/adapters/repo/github.py`](../../src/baton/adapters/repo/github.py).
 
-## Why this family is tiny, and should stay tiny
+## Ask the host, never a working tree
 
-The whole current implementation is one method:
+Every method here goes through the host's API. Nothing shells out to `git`, and nothing
+assumes there is a clone to stand in: `baton bootstrap` creates a repo, cuts its
+integration branch off the default branch's sha and protects both branches from an empty
+directory.
 
-```python
-class GitHubRepo:
-    def __init__(self, repo: str, token: str | None = None): ...
-    def probe(self) -> str: ...
-```
+That is a rule, not an accident. A local `git log` depends on how old your `fetch` is,
+and a step that needs a checkout cannot run where there is no checkout — a fresh machine,
+a CI job, an agent that was handed a name and nothing else. Where the host can answer,
+the host answers.
 
-That is not an oversight. baton's git work happens **in the shell, inside the skills** —
-`gh pr diff` in [`baton-verify`](../../skills/baton-verify/SKILL.md), `gh pr create`
-and `gh pr merge` in [`ship-pr.sh`](../../skills/baton-ship/scripts/ship-pr.sh). Those
-are already the right tool: they are readable, debuggable by hand, and a person can run
-the exact same command to check what the agent did.
+The family is still small, and the reason it is no longer *one method* is that the
+creation half now has a caller: `bootstrap` needs to find-or-create a repo, cut a branch
+and apply protections, so those went into the contract. Nothing was added speculatively —
+`compare()`, PR creation and release tagging are still absent, because the thing that
+would use them ([`ship-pr.sh`](../../skills/baton-ship/scripts/ship-pr.sh)) has not been
+ported yet.
 
-So Python needs exactly one thing from the code host today: **proving what a credential
-can actually do**. Everything else would be an abstraction with one implementation,
-built for a second code host that does not exist.
+> Do not grow a portable PR abstraction here until the caller exists. `ship-pr.sh` is
+> that caller, and porting it is its own change.
 
-> Do not grow a portable PR abstraction here until there is a second host to contrast
-> against. When there is one, the shape will be obvious from the two of them; guessed
-> now, it will be wrong in a way that is expensive to undo.
+## `probe()` and `permissions()` — report capability, not success
 
-## `probe()` — report capability, not success
-
-This is the one method, and the subtlety is that "the token works" is the *uninteresting*
-half of the answer. What matters is **what it is allowed to do here**:
+"The token works" is the *uninteresting* half of the answer. What matters is **what it is
+allowed to do here**:
 
 ```python
 def probe(self) -> str:
@@ -43,7 +41,11 @@ def probe(self) -> str:
     return f"{login} on {self.repo} — {can}"
 ```
 
-`baton doctor` runs this once per credential role, and the output is what makes the
+`permissions()` is the same fact as a **set**, and that split matters: the admin gate
+that runs before any protection write reads the set, never the sentence. A gate that has
+to parse `probe()`'s prose is one wording change away from silently passing.
+
+`baton doctor` runs the sentence once per credential role, and the output is what makes the
 [agent/admin split](../../README.md#credential-roles) *checkable*:
 
 ```
@@ -77,6 +79,10 @@ and `all_repos` — which is what `doctor` iterates, because **a credential can 
 repo of a project and not the next**. Probe each one separately; a single green check
 on the default repo proves nothing about the others.
 
+`bootstrap` protects every repo in `all_repos` for the same reason, with no flag to
+enable it: a project that protects one repo of three has protected nothing that matters,
+and the config already knows the list.
+
 ## Credentials
 
 The code host has **its own credential pair**, independent of the board's. `git` is a
@@ -102,17 +108,34 @@ backend holds the board. A new host needs its own equivalent in `_DEFAULT_TOKENS
    [`adapters/_gh.py`](../../src/baton/adapters/_gh.py), not inside the class —
    `read/` and `repo/` share it.
 
+## Two rules the role layer enforces, not the provider
+
+Both live in [`repo/__init__.py`](../../src/baton/adapters/repo/__init__.py), written
+against `RepoBase` alone, so a second host inherits them for free:
+
+**Look before you create.** `find()` must answer `None` for "does not exist" and *raise*
+for anything else. A host that cannot tell a 404 from a 403 turns a permissions problem
+into a second repo standing next to the one it could not read.
+
+**Never trust a write you have not read back.** Protections are applied and then
+re-read, and the report says which. A PUT that returned 200 and a branch that is actually
+protected are two different claims, and the gap between them is exactly where "it looked
+configured" comes from.
+
 ## When it is right to grow this family
 
-Move work from the shell into Python only when something needs a **decision** rather
-than a command: retry logic, cross-host branching, parsing that a `--jq` cannot express.
-`ship-pr.sh` is a good example of the boundary — it is 80 lines of shell doing waits,
-retries and resumability, and it is more readable there than it would be as Python.
+Move work into Python when something needs a **decision** rather than a command: looking
+before creating, an admin gate before a write, a read-back after one. Live terminal
+streams are the counter-example — `gh pr checks --watch` is a better tool than a poll
+loop reimplemented here, which is why the release path is still a script for now.
 
 ## Checklist
 
 - [ ] `probe()` reports the credential's permission level, not just success
+- [ ] `permissions()` returns a set — the admin gate reads it, not the prose
+- [ ] `find()` returns `None` **only** for "does not exist"; 403 raises
 - [ ] Constructor takes `(repo, token)` and validates `repo`
-- [ ] Every repo in `all_repos` is probed independently
+- [ ] Every repo in `all_repos` is probed and protected independently
+- [ ] Nothing reads a local working tree; the host is asked
 - [ ] No PR/branch abstraction added speculatively
 - [ ] Failures raise `BatonError` with the host's real error text quoted

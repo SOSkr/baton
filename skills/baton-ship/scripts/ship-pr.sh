@@ -5,6 +5,13 @@
 # Usage (from the target repo root):
 #   ship-pr.sh "release summary" [--no-merge] [--base B] [--head H] [--workflow W]
 # Base/head default to `baton config git.production` / `git.integration`.
+# ponytail: this script has a replacement pending, not a permanent home. Its `gh pr`
+# and `gh run` calls belong in the repo provider (adapters/repo/github.py) the way
+# branch protection now does; what keeps it here for now is `--watch`, which streams a
+# live terminal view that a Python poll loop would only imitate worse. It dies with the
+# release/version change, together with the version-bump duplication across
+# pyproject.toml and __init__.py. Do not add host calls here in the meantime — add them
+# to the provider, per docs/adapters/repos.md.
 set -euo pipefail
 
 title="${1:?usage: ship-pr.sh \"release summary\" [--no-merge] [--base B] [--head H] [--workflow W]}"

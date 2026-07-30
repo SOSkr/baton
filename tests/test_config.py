@@ -148,7 +148,7 @@ def test_write_config_roundtrips_and_refuses_to_clobber():
             write_config("plane", dict(target, project="OTHER"), root=root)
             assert False, "expected BatonError"
         except BatonError as e:
-            assert "already exists" in str(e)
+            assert "already says something different" in str(e) and "OTHER" in str(e)
         write_config("plane", dict(target, project="OTHER"), root=root, force=True)
         assert load(root).target["project"] == "OTHER"
 

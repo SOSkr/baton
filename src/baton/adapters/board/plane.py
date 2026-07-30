@@ -229,6 +229,44 @@ class PlaneBoard(BoardBase):
             {"issues": [self._issue_uuid(item_id)]})
 
     # ---------- Adapter API ----------
+    # ---------- creation (bootstrap) ----------
+    def find_project(self) -> dict | None:
+        """Same lookup as `_proj()` but answering None instead of raising: bootstrap
+        asks in order to decide, not in order to fail."""
+        rows = self._request("GET", f"{self.workspace}/projects/").get("results", [])
+        for p in rows:
+            if (p.get("identifier") or "").lower() == self.project_identifier.lower():
+                self._project_id = p["id"]
+                return {"id": p["id"], "identifier": p.get("identifier"),
+                        "name": p.get("name", "")}
+        return None
+
+    def create_project(self, name: str) -> dict:
+        """`identifier` is not optional for Plane and not ours to invent: it is the
+        prefix in ENG-123, it comes from `config.target.project`, and it is what every
+        later lookup resolves by."""
+        row = self._request("POST", f"{self.workspace}/projects/",
+                            {"name": name, "identifier": self.project_identifier})
+        self._project_id = row.get("id")
+        self._states = None                  # a fresh project ships its own states
+        return {"id": row.get("id"), "identifier": row.get("identifier"),
+                "name": row.get("name", name)}
+
+    def stage_groups(self) -> dict[str, str]:
+        return {s["name"]: (s.get("group") or "") for s in self._discover_states()}
+
+    def create_stage(self, name: str, *, group: str, color: str) -> None:
+        """Plane requires a colour and takes the lifecycle group here; `sequence` is
+        left to the server, which appends."""
+        self._request("POST", f"{self.workspace}/projects/{self._proj()}/states/",
+                      {"name": name, "color": color, "group": group})
+        self._states = None                  # order and ids changed
+
+    def delete_stage(self, name: str) -> None:
+        sid = self._state_by_name(name)["id"]
+        self._request("DELETE", f"{self.workspace}/projects/{self._proj()}/states/{sid}")
+        self._states = None
+
     def list_stages(self) -> list[str]:
         return [s["name"] for s in self._discover_states()]
 

@@ -13,9 +13,9 @@ import sys
 
 from . import __version__
 from .base import PRIORITIES, BatonError, Item
-from .config import (BACKENDS, ROLES, find_config, github_token_env, load,
-                     load_project, write_config)
-from .core import Baton
+from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, find_config,
+                     github_token_env, load, load_project, write_config)
+from .core import DEFAULT_STAGES, Baton
 
 
 def _emit(obj, as_json: bool):
@@ -129,18 +129,123 @@ def cmd_body(a, b, cfg):
     _emit(f"updated body of #{a.id}", a.json)
 
 
-def cmd_init(a, b, cfg):
-    """Write .baton/config.yaml for a board that ALREADY exists. Creating the repo
-    and the board is `baton-bootstrap` (admin credential); this only records where
-    they are, then proves discovery reaches them."""
-    target = {k: v for k, v in (
-        ("owner", a.owner), ("project", a.board),
-        ("base_url", a.base_url), ("workspace", a.workspace),
-    ) if v is not None}
-    path = write_config(a.backend, target, repo=a.repo, force=a.force)
-    print(f"wrote {path}")
-    print("run `baton doctor` to verify discovery reaches the board.")
-    return 0
+def _bootstrap_config(a):
+    """The config bootstrap will work from: this project's, with the flags on top.
+
+    Reading the existing config first is what makes a bare re-run work — after a
+    half-failed run every name is already on disk, so `baton bootstrap` with no flags
+    is the resume command.
+    """
+    cur = load() if find_config() else None
+    target = dict(cur.target if cur else {})
+    for key, val in (("owner", a.owner), ("project", a.board),
+                     ("base_url", a.base_url), ("workspace", a.workspace)):
+        if val is not None:
+            target[key] = val
+    git = dict(cur.git if cur else DEFAULT_GIT)
+    for key, val in (("integration", a.integration), ("production", a.production)):
+        if val:
+            git[key] = val
+    return {
+        "board": a.backend or (cur.backend if cur else BACKENDS[0]),
+        "target": target,
+        "repo": a.repo or (cur.code_repo if cur else None),
+        "git": git,
+        "visibility": a.visibility or (cur.visibility if cur else None) or "private",
+        "board_stages": a.stage or (cur.board_stages if cur else None) or list(DEFAULT_STAGES),
+    }
+
+
+def _print_bootstrap(rep: dict) -> int:
+    """One line per step, and the step's own words for what happened. The failure mode
+    this guards against is not "it failed" — it is "it failed and looked like it
+    worked", which is why every write here is reported from a read-back."""
+    bad = False
+    r = rep.get("repo", {})
+    print(f"repo {r.get('name')}: {r.get('state')} ({r.get('visibility', '?')})")
+    br = rep.get("branch", {})
+    print(f"branch {br.get('name')}: {br.get('state')}")
+    bad |= "no " in str(br.get("state", ""))
+
+    prot = rep.get("protections", {})
+    if prot.get("state"):                                  # dry-run shape
+        print(f"protections {', '.join(prot['repos'])} "
+              f"[{', '.join(prot.get('branches', []))}]: {prot['state']}")
+    for name, one in prot.items():
+        if name in ("state", "repos", "branches"):
+            continue
+        if not one.get("admin", True):
+            print(f"protections {name}: SKIPPED — this credential has no admin there")
+            print("  (set $GH_ADMIN_TOKEN, or have whoever holds admin re-run this)")
+            bad = True
+            continue
+        for br, state in one.get("branches", {}).items():
+            print(f"protection {name} {br}: {state}")
+            bad |= ("missing" in state) or ("did NOT land" in state)
+
+    bd = rep.get("board", {})
+    print(f"board {bd.get('identifier') or bd.get('project', {}).get('identifier')}: "
+          f"{'created' if bd.get('created') else bd.get('state', 'existed')}")
+    for name, state in (bd.get("stages") or {}).items():
+        print(f"  stage {name}: {state}")
+        bad |= "config wants" in state
+    for name in bd.get("extra") or []:
+        print(f"  stage {name}: EXTRA — not in board_stages "
+              f"({(bd.get('pruned') or {}).get(name, 'kept; --prune deletes it')})")
+
+    if rep.get("created"):
+        print("\ncreated by this run:")
+        for line in rep["created"]:
+            print(f"  {line}")
+    return 1 if bad else 0
+
+
+def cmd_bootstrap(a, b, cfg):
+    """Create the project — repo, integration branch, protections, board, stages — and
+    write the config it all hangs off. Idempotent: everything is looked up before it is
+    created, so this is also the command you re-run after a half-failure.
+
+    `baton init` is the same command: recording where an existing repo and board are is
+    what this does when the lookups find them.
+    """
+    want = _bootstrap_config(a)
+    # Asked BEFORE anything is written. The role layer refuses the same thing, but by
+    # then a repo may exist — an undecided flag should cost nothing but a re-run.
+    checks = None if not (a.check or a.no_checks) else (a.check or [])
+    if checks is None and not a.dry_run:
+        raise BatonError(
+            "refusing to guess about required checks: pass --check <name>, or --no-checks "
+            "to say you mean it.\n"
+            "A protection with no required check lets a red PR merge. One naming a check "
+            "that does not exist yet makes every PR HANG — it does not fail, it waits for "
+            "a status that never arrives.\n"
+            "Require ONE aggregated name, never a build matrix's `test (3.11)`.")
+    if a.dry_run:
+        # No config written, nothing created: this is where a typo'd repo name shows up
+        # as "would create" while it is still free.
+        cfg = Config(backend=want["board"], target=want["target"], repo=want["repo"],
+                     git=want["git"], visibility=want["visibility"],
+                     board_stages=want["board_stages"])
+        rep = Baton(cfg, a.role).plan()
+        print("dry run — nothing was written or created\n")
+        return _print_bootstrap(rep)
+
+    path, changed, comments = write_config(
+        want["board"], want["target"], repo=want["repo"], git=want["git"],
+        visibility=want["visibility"], board_stages=want["board_stages"], force=a.force)
+    print(f"config: {path}" + (" (updated)" if changed else ""))
+    for key, (old, new) in changed.items():
+        print(f"  {key}: {old!r} -> {new!r}")
+    if comments:
+        print("  note: comments in that file were lost — yaml round-trip cannot keep them")
+
+    rep = Baton(load(path.parent.parent), a.role).bootstrap(
+        project_name=a.name, checks=checks, reviews=a.reviews,
+        enforce_admins=a.enforce_admins, prune=a.prune)
+    print()
+    rc = _print_bootstrap(rep)
+    print("\nnext: `baton doctor`" + ("" if rc == 0 else " — and fix what is marked above"))
+    return rc
 
 
 def _probe(label: str, build) -> bool:
@@ -261,7 +366,8 @@ def cmd_doctor(a, b, cfg):
         if holes:
             print("  ^ an unprotected branch means an agent with push rights skips the"
                   " PR, the review and CI entirely.")
-            print("    Fix: skills/baton-bootstrap/scripts/protect-branches.sh")
+            print("    Fix: baton bootstrap --check <your CI check>   (idempotent; "
+                  "protects every repo the config declares)")
 
     try:
         stages = b.board.list_stages()
@@ -299,17 +405,51 @@ def build_parser() -> argparse.ArgumentParser:
                         "env var; see `baton doctor`.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("init", help="write .baton/config.yaml for an existing board")
+    # `init` is the same command: with an existing repo and board, "create the project"
+    # is exactly "write down where it is". Kept as an alias because it is what 0.3.0
+    # documented and what people's notes say.
+    s = sub.add_parser("bootstrap", aliases=["init"],
+                       help="create the project (repo + board + protections) and write "
+                            ".baton/config.yaml. Idempotent: re-run to resume")
     s.add_argument("--backend", default=BACKENDS[0], choices=list(BACKENDS))
     s.add_argument("--repo", help="OWNER/REPO where the code lives")
     s.add_argument("--owner", help="reserved for backends that separate board owner")
     # `--board`, not `--project`: the global -p/--project already means "a sibling
     # board", and an argparse subparser would silently clobber it.
-    s.add_argument("--board", help="github: ProjectV2 number · plane: project identifier")
+    s.add_argument("--board", help="plane: project identifier (the ENG in ENG-123)")
     s.add_argument("--base-url", dest="base_url", help="plane: instance URL")
     s.add_argument("--workspace", help="plane: workspace slug")
-    s.add_argument("--force", action="store_true", help="overwrite an existing config")
-    s.set_defaults(fn=cmd_init)
+    s.add_argument("--name", help="the board project's display name (default: its identifier)")
+    s.add_argument("--visibility", choices=["private", "public"],
+                   help="new repos only; default private")
+    s.add_argument("--stage", action="append", metavar="NAME",
+                   help="a stage the board must have, in board order (repeatable). "
+                        "Default: " + ", ".join(DEFAULT_STAGES) + ". For a board whose "
+                        "columns need explicit lifecycle groups, write `board_stages` "
+                        "as a mapping in the config instead")
+    s.add_argument("--integration", help=f"integration branch (default {DEFAULT_GIT['integration']})")
+    s.add_argument("--production", help=f"production branch (default {DEFAULT_GIT['production']})")
+    s.add_argument("--check", action="append", metavar="NAME",
+                   help="required status check on both branches (repeatable). Use ONE "
+                        "aggregated name, never a build matrix's `test (3.11)`")
+    s.add_argument("--no-checks", dest="no_checks", action="store_true",
+                   help="protect with no required check — say it on purpose: a red PR "
+                        "can then merge. Re-run with --check once CI exists")
+    s.add_argument("--reviews", type=int, default=1, metavar="N",
+                   help="required approvals (default 1 — what stops an agent merging "
+                        "its own work, since a PR author cannot approve their own)")
+    s.add_argument("--enforce-admins", dest="enforce_admins", action="store_true",
+                   help="protections apply to admins too; then every release needs a "
+                        "human approval")
+    s.add_argument("--prune", action="store_true",
+                   help="DELETE board stages that `board_stages` does not declare "
+                        "(a fresh Plane project ships Backlog/Todo/Done). Destructive "
+                        "on a board with work in it")
+    s.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="print the plan and change nothing")
+    s.add_argument("--force", action="store_true",
+                   help="replace config values that already say something different")
+    s.set_defaults(fn=cmd_bootstrap)
 
     s = sub.add_parser("new", help="create an item")
     s.add_argument("--title", required=True)
@@ -401,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.cmd == "init":               # runs WITHOUT a config — it writes one
+        if args.cmd in ("bootstrap", "init"):  # runs WITHOUT a config — it writes one
             return args.fn(args, None, None) or 0
         if args.cmd == "export":             # config OPTIONAL: it holds `migrate_from`
             cfg = load() if find_config() else None

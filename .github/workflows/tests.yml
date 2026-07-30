@@ -28,10 +28,9 @@ jobs:
       # pytest descubre. Listar los archivos a mano hacía que un test nuevo se
       # saltara en silencio.
       - run: python -m pytest -q
-      # Los suites de bash: el hook y el script de protecciones, ambos con `gh`
-      # stubbeado. Sin red.
+      # Lo que queda de bash: el hook, con `gh` stubbeado y sin red. Las protecciones
+      # ya no están acá — se portaron a Python y las cubre `tests/test_bootstrap.py`.
       - run: bash hooks/test-pr-comment-reminder.sh
-      - run: bash skills/baton-bootstrap/scripts/test-protect-branches.sh
       - run: bash -n skills/baton-ship/scripts/ship-pr.sh
 
   lint:
