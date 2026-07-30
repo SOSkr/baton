@@ -5,7 +5,7 @@ Minimal by design — everything not here is discovered by the adapter.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 
 import yaml
@@ -42,7 +42,6 @@ def github_token_env(role: str) -> str:
 
 @dataclass
 class Config:
-    backend: str                              # the BOARD provider — same as adapters["board"]
     target: dict = field(default_factory=dict)   # github: {repo, owner?, project?}
     labels: dict = field(default_factory=dict)   # {axes: [...]}
     stages: dict = field(default_factory=dict)   # verb->stage aliases: {approve: Approved, ...}
@@ -55,19 +54,19 @@ class Config:
     memory: str | None = None                     # this project's name in the session-memory store, if any
     projects: dict = field(default_factory=dict)  # sibling boards: {name: path to its .baton/config.yaml or its dir}
     adapters: dict = field(default_factory=dict)  # role -> provider file name: {board: plane, repo: github}
+    # `backend: plane` is the older spelling of `adapters.board`. It is accepted here
+    # forever — it is on people's disks — but it is NOT stored: it is translated on the
+    # way in, and `cfg.backend` below reads back out of `adapters`. One fact, one home,
+    # so the two spellings cannot drift apart.
+    backend: InitVar[str | None] = None
     board_stages: list = field(default_factory=list)  # stages the board MUST have (bootstrap creates them)
     visibility: str | None = None                 # new repos: private | public (bootstrap only)
     path: Path | None = None                     # where it was loaded from
 
-    def __post_init__(self):
-        """`backend:` and `adapters.board` are the same fact. Configs written before
-        `adapters:` existed carry only the first, and code written before it reads only
-        the first — so they are reconciled once, here, instead of every reader having
-        to know both spellings."""
+    def __post_init__(self, backend):
         self.adapters = {**_DEFAULT_ADAPTERS, **(self.adapters or {})}
-        if self.backend:
-            self.adapters["board"] = self.adapters.get("board") or self.backend
-        self.backend = self.adapters.get("board", self.backend)
+        if backend and not self.adapters.get("board"):
+            self.adapters["board"] = backend
 
     def token_env(self, role: str) -> str:
         """The env var NAME holding the credential for `role`."""
@@ -101,6 +100,11 @@ class Config:
                 if hit:
                     return hit
         return self.code_repo
+
+
+# Defined after the decorator on purpose: a property assigned inside a dataclass body
+# would be read as the field's default value.
+Config.backend = property(lambda self: self.adapters.get("board"))
 
 
 def resolve_token(cfg: Config, role: str) -> str | None:

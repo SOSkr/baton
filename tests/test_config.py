@@ -170,22 +170,22 @@ def test_multirepo_project_resolves_the_repo_from_the_area_label():
         root = Path(d)
         _write(root / ".baton" / "config.yaml",
                _PLANE % "CANGURO"
-               + "repo: soskr/canguro\n"
+               + "repo: acme/app\n"
                "repos:\n"
-               "  engine: soskr/canguro-engine\n"
-               "  web: soskr/canguro-web\n")
+               "  engine: acme/app-engine\n"
+               "  web: acme/app-web\n")
         cfg = load(root)
-        assert cfg.repo_for("engine") == "soskr/canguro-engine"
-        assert cfg.repo_for("web") == "soskr/canguro-web"
-        assert cfg.repo_for("unknown") == "soskr/canguro"   # falls back to the default
-        assert cfg.repo_for(None) == "soskr/canguro"
+        assert cfg.repo_for("engine") == "acme/app-engine"
+        assert cfg.repo_for("web") == "acme/app-web"
+        assert cfg.repo_for("unknown") == "acme/app"   # falls back to the default
+        assert cfg.repo_for(None) == "acme/app"
 
-        assert cfg.repo_for_labels(["type:bug", "area:web"]) == "soskr/canguro-web"
-        assert cfg.repo_for_labels(["type:bug"]) == "soskr/canguro"
+        assert cfg.repo_for_labels(["type:bug", "area:web"]) == "acme/app-web"
+        assert cfg.repo_for_labels(["type:bug"]) == "acme/app"
 
         # doctor has to check every repo — a credential can reach one and not the next
-        assert set(cfg.all_repos) == {"soskr/canguro", "soskr/canguro-engine",
-                                      "soskr/canguro-web"}
+        assert set(cfg.all_repos) == {"acme/app", "acme/app-engine",
+                                      "acme/app-web"}
 
 
 def test_migration_source_is_project_data_not_skill_data():
@@ -194,9 +194,9 @@ def test_migration_source_is_project_data_not_skill_data():
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         _write(root / ".baton" / "config.yaml",
-               _PLANE % "AOTBOT" + "migrate_from: {repo: soskr/aot, project: 3}\n")
+               _PLANE % "AOTBOT" + "migrate_from: {repo: acme/legacy, project: 3}\n")
         cfg = load(root)
-        assert cfg.migrate_from == {"repo": "soskr/aot", "project": 3}
+        assert cfg.migrate_from == {"repo": "acme/legacy", "project": 3}
 
         # a project that never migrated simply has none
         _write(root / "other" / ".baton" / "config.yaml", _PLANE % "X")

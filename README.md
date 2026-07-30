@@ -70,63 +70,37 @@ symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 
 ## Config
 
-Per-project `.baton/config.yaml` (walked up from cwd):
+Per-project `.baton/config.yaml` (walked up from cwd). The required half:
 
 ```yaml
-adapters:             # which provider serves each role. `backend: plane` is the older
-  board: plane        # spelling of `adapters.board` and is still read
-  repo: github        # optional — the default
+adapters:                          # which provider serves each role
+  board: plane                     # `backend: plane` is the older spelling, still read
 target:
-  base_url: https://plane.acme.com
-  workspace: acme
-  project: APP        # project identifier
-stages:               # optional verb→stage aliases
-  approve: Approved
-  start: In Progress
-  verify: Verify      # declaring this ALSO gates it — see below
-  ship: Deployed
-tokens:               # optional — env var NAMES per credential role (see below)
-  agent: PLANE_API_KEY
-  admin: PLANE_ADMIN_API_KEY
-review_label: needs-review   # optional — see below
-
-git:                  # optional — branch names; defaults shown. See docs/git-flow.md
-  integration: develop
-  production: master
-repo: OWNER/REPO      # where the CODE lives — the board knows nothing about git
-visibility: private   # bootstrap only: what a repo it CREATES is created as
-board_stages:         # bootstrap only: the stages the board must have, in board order
-  - Review            # a plain list infers each stage's lifecycle group; write it as a
-  - In Progress       # mapping ({Desplegado: completed}) when that guess would be wrong
-  - Deployed          # — baton reads open/closed off that group
-  - Cancelled
-repos:                # multi-repo project: area-label value → repo
-  engine: OWNER/app-engine
-  web: OWNER/app-web
-migrate_from:         # optional — the old board this project came from
-  repo: OWNER/OLD
-  project: 5
-memory: app-a         # optional — this project's name in your session-memory store
-projects:             # optional — sibling boards you can query with --project
-  b: ../app-b         # relative to the PROJECT root (the dir holding .baton/)
+  base_url: https://plane.acme.com # plane: instance URL
+  workspace: acme                  # plane: workspace slug
+  project: APP                     # plane: project identifier — the APP in APP-123
+repo: acme/app                     # where the CODE lives; the board knows no git
 ```
 
-Everything else (project node id, Status field id, stage option ids) is **discovered**.
+Everything else (project id, Status field id, stage option ids) is **discovered** — no
+ids in this file, ever, which is why it is five lines instead of a pile of UUIDs.
 
-Write it by hand, or let `baton bootstrap` do the mechanical part:
+**Every key, with values and comments: [`docs/config.example.yaml`](docs/config.example.yaml).**
+That file is loaded by [`tests/test_docs.py`](tests/test_docs.py), which also checks it
+against `Config` in both directions — so it cannot document a key that does not exist,
+and a new key cannot arrive undocumented. Copy it:
 
 ```bash
-baton bootstrap --base-url https://plane.acme.com --workspace acme --board APP \
-                --repo OWNER/REPO --check test
+mkdir -p .baton && cp docs/config.example.yaml .baton/config.yaml
 ```
 
-One command for both jobs, because they are the same code: it **looks up** the repo and
-the board, **creates** whatever is missing, protects the branches, and writes the config.
-So on an existing project it just records where things are (`baton init` is an alias kept
-for that reading), and on an empty one it creates them — see
-[`baton-bootstrap`](skills/baton-bootstrap/SKILL.md). Re-running it is how you resume
-after a half-failure; `--dry-run` prints the plan and touches nothing; a value that would
-*change* in an existing config needs `--force`.
+Or let `baton bootstrap` write the required half for you — see
+[`baton-bootstrap`](skills/baton-bootstrap/SKILL.md).
+
+Notable ones: `stages` renames baton's verbs to your columns (and declaring
+`stages.verify` **gates** it) · `repos` maps an `area:` label to a repo for multi-repo
+projects · `tokens` holds env var NAMES, never credentials · `git` names your branches,
+explained in [docs/git-flow.md](docs/git-flow.md).
 
 ## Credential roles
 

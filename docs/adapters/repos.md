@@ -67,10 +67,10 @@ A board project can span several git repos, and the board knows nothing about gi
 mapping lives in config, keyed by the `area:` label value:
 
 ```yaml
-repo: soskr/canguro              # the default
+repo: acme/app              # the default
 repos:
-  engine: soskr/canguro-engine   # matches label area:engine
-  web: soskr/canguro-web
+  engine: acme/app-engine   # matches label area:engine
+  web: acme/app-web
 ```
 
 Resolution helpers live on `Config`
