@@ -1,0 +1,88 @@
+# baton — .baton/config.yaml, every key, with values.
+#
+# Copy it to your project and delete what you do not need:
+#
+#     mkdir -p .baton && cp docs/config.example.yaml .baton/config.yaml
+#
+# Or let `baton bootstrap` write the required half for you (see the baton-bootstrap
+# skill) and add the rest by hand.
+#
+# Two rules hold everywhere in here:
+#   1. NO IDS. Everything is a human-typed name; internal ids are discovered at runtime.
+#      That is why this file is short and why moving workspace does not mean editing code.
+#   2. NO TOKENS. `tokens:` holds the NAME of an env var, never a credential.
+#
+# `tests/test_docs.py` loads this file and checks every key against `Config`, so it
+# cannot quietly fall behind the code the way a snippet in a README does.
+
+# --- required -----------------------------------------------------------------------
+
+adapters:              # which provider serves each adapter role. The value is the FILE
+  board: plane         # NAME under src/baton/adapters/<role>/ — see docs/adapters/
+  repo: github         # optional; github is the default
+  read: github_projects  # only used by `baton export` during a migration
+
+target:                # where the board is. Keys depend on the board provider
+  base_url: https://plane.acme.com   # plane: your instance
+  workspace: acme                    # plane: workspace slug
+  project: APP                       # plane: project identifier — the APP in APP-123
+
+repo: acme/app         # where the CODE lives. The board knows nothing about git
+
+# --- how the project is shaped ------------------------------------------------------
+
+git:                   # branch names. Trunk-based? Point both at the same one
+  integration: develop
+  production: master
+
+visibility: private    # `baton bootstrap` only: what a repo it CREATES is created as
+
+board_stages:          # `baton bootstrap` only: the stages the board must have, in
+  - Review             # board order. baton derives open/closed from each stage's
+  - Approved           # lifecycle group, which is inferred here: first is unstarted,
+  - In Progress        # the last non-cancelled one is what "done" means, and a name
+  - Verify             # like Cancelled is a cancellation.
+  - Deployed
+  - Cancelled
+# When that guess would be wrong — a board in another language, two closing columns —
+# write it as a mapping instead and be explicit (groups: backlog, unstarted, started,
+# completed, cancelled):
+#
+#   board_stages: {Pendiente: unstarted, Haciendo: started,
+#                  Desplegado: completed, Cancelado: cancelled}
+
+stages:                # verb -> stage NAME, when your columns are not baton's defaults
+  approve: Approved
+  start: In Progress
+  verify: Verify       # declaring this ALSO gates it: a move that jumps OVER this
+  ship: Deployed       # stage is refused. See the baton-verify skill
+
+labels:                # the label AXES this project uses. Labels are axes, never state
+  axes: [type, area]   # — state is the board stage
+
+review_label: needs-review   # applied automatically on a BACKWARD stage move, so a
+                             # step back is something a human sees
+
+# --- multi-repo ---------------------------------------------------------------------
+
+repos:                 # a board project can span several git repos; the `area:` label
+  engine: acme/app-engine    # on an item says which one. Matches label `area:engine`
+  web: acme/app-web
+
+# --- credentials (names only, never values) -----------------------------------------
+
+tokens:                # the ENV VAR NAME to read per credential role. The agent writes
+  agent: PLANE_API_KEY # code and items; the admin creates and merges. See the README's
+  admin: PLANE_ADMIN_API_KEY   # § Credential roles. GitHub always reads GH_TOKEN /
+                               # GH_ADMIN_TOKEN, whichever provider holds the board
+
+# --- optional wiring ----------------------------------------------------------------
+
+migrate_from:          # the OLD board this project came from, read-only, for
+  repo: acme/legacy    # `baton export`. Delete it once the migration is done
+  project: 5
+
+memory: app            # this project's name in your session-memory store, if you use one
+
+projects:              # sibling boards you can query with `baton -p <name> ...`
+  other: ../other-app  # relative to the PROJECT root (the dir holding .baton/)
