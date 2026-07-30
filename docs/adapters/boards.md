@@ -138,6 +138,39 @@ GitHub *milestones*. `total`/`done` come from the backend so progress cannot dri
 exist — creating one is a deliberate act with a target date, never a side effect of
 filing a task. Error message should point at the roadmap skill.
 
+## The creation half, and the one thing that silently breaks a board
+
+`find_project` · `create_project` · `stage_groups` · `create_stage` · `delete_stage` are
+what `baton bootstrap` calls. They are separate from everything above because everything
+above assumes the board already exists — and a backend whose projects are created by a
+human in a UI can still serve the whole lifecycle.
+
+**`stage_groups()` is the one to get right.** baton derives an item's open/closed from
+its stage's *lifecycle group*, not from the stage's name (`_CLOSED_GROUPS` in
+[`plane.py`](../../src/baton/adapters/board/plane.py)). So a `Deployed` column created
+under the group `backlog` leaves every shipped item reading as **open, forever** — and
+nothing surfaces it, because the column looks right on the board.
+
+Which is why creating a stage takes the group explicitly:
+
+```python
+ad.create_stage("Deployed", group="completed", color="#16a34a")
+```
+
+Where the group comes from is the role layer's business, not the provider's: a plain
+`board_stages` list is inferred by position (first is unstarted, the last non-cancelled
+one is what done means), and a mapping in the config overrides that guess. See
+`wanted_stages` in [`board/__init__.py`](../../src/baton/adapters/board/__init__.py).
+
+Two rules the role layer holds, so every backend inherits them:
+
+- **Nothing existing is touched.** A stage whose group disagrees with the config is
+  *reported*, never rewritten — changing a group changes what every item already sitting
+  in that column counts as.
+- **Extra stages are reported, not removed.** A fresh Plane project ships Backlog / Todo /
+  Done. Deleting a stage on a board with work in it loses that work's history, so it takes
+  `--prune` and a human.
+
 ## Wiring it up
 
 1. Drop the module in `src/baton/adapters/board/`. **The file name is the config
@@ -156,6 +189,9 @@ BACKENDS = ("plane", "mytracker")
 
 4. Accept `(target: dict, token: str | None)` in `__init__`, validate `target` there,
    and raise `BatonError` naming the missing key.
+5. Implement the creation half too, or `baton bootstrap` cannot set that backend up.
+   `find_project()` returns `None` **only** for "not there" — an unauthorised lookup
+   answered as `None` makes bootstrap create a duplicate project.
 
 ## Checklist before you call it done
 
@@ -165,6 +201,9 @@ BACKENDS = ("plane", "mytracker")
 - [ ] `state` derives from the backend's done-concept, not a stage name
 - [ ] `comments()` is oldest-first and plain text
 - [ ] Every not-found raises `BatonError` listing what *does* exist
+- [ ] `stage_groups()` reports the backend's real lifecycle group per stage
+- [ ] `create_stage()` files the stage under the group it was given, not a default
+- [ ] `find_project()` answers `None` for absent and raises for unauthorised
 - [ ] `capabilities()` claims only what is really native
 - [ ] A fake-server test covers the mapping and the error paths
 - [ ] `baton doctor` is green against a real instance

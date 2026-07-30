@@ -65,7 +65,7 @@ symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 | [`baton-ship`](skills/baton-ship/SKILL.md) | Take the integration branch to production and close the items that went out — PR, checks, merge, deploy verification. |
 | [`baton-reject`](skills/baton-reject/SKILL.md) | Reject a work-item: close it with a reason comment. |
 | [`baton-catch-up`](skills/baton-catch-up/SKILL.md) | Recover what already happened — on an item, or in another project you own — before asking anyone. |
-| [`baton-bootstrap`](skills/baton-bootstrap/SKILL.md) | Step zero: create the repo, the board, protections and label axes, then wire baton to it. **Admin credential.** |
+| [`baton-bootstrap`](skills/baton-bootstrap/SKILL.md) | Step zero: create the repo, the board, its stages, protections and label axes, then wire baton to it. **Admin credential.** |
 | [`baton-migrate`](skills/baton-migrate/SKILL.md) | Move an old GitHub Projects board onto the current one — items, stages, and the comment trail. |
 
 ## Config
@@ -73,7 +73,9 @@ symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 Per-project `.baton/config.yaml` (walked up from cwd):
 
 ```yaml
-backend: plane
+adapters:             # which provider serves each role. `backend: plane` is the older
+  board: plane        # spelling of `adapters.board` and is still read
+  repo: github        # optional — the default
 target:
   base_url: https://plane.acme.com
   workspace: acme
@@ -92,6 +94,12 @@ git:                  # optional — branch names; defaults shown. See docs/git-
   integration: develop
   production: master
 repo: OWNER/REPO      # where the CODE lives — the board knows nothing about git
+visibility: private   # bootstrap only: what a repo it CREATES is created as
+board_stages:         # bootstrap only: the stages the board must have, in board order
+  - Review            # a plain list infers each stage's lifecycle group; write it as a
+  - In Progress       # mapping ({Desplegado: completed}) when that guess would be wrong
+  - Deployed          # — baton reads open/closed off that group
+  - Cancelled
 repos:                # multi-repo project: area-label value → repo
   engine: OWNER/app-engine
   web: OWNER/app-web
@@ -105,15 +113,20 @@ projects:             # optional — sibling boards you can query with --project
 
 Everything else (project node id, Status field id, stage option ids) is **discovered**.
 
-Write it by hand, or let `baton init` do the mechanical part:
+Write it by hand, or let `baton bootstrap` do the mechanical part:
 
 ```bash
-baton init --base-url https://plane.acme.com --workspace acme --board APP --repo OWNER/REPO
+baton bootstrap --base-url https://plane.acme.com --workspace acme --board APP \
+                --repo OWNER/REPO --check test
 ```
 
-`init` records where an **existing** board is; creating the repo and the board is
-[`baton-bootstrap`](skills/baton-bootstrap/SKILL.md). It refuses to overwrite a config
-without `--force`.
+One command for both jobs, because they are the same code: it **looks up** the repo and
+the board, **creates** whatever is missing, protects the branches, and writes the config.
+So on an existing project it just records where things are (`baton init` is an alias kept
+for that reading), and on an empty one it creates them — see
+[`baton-bootstrap`](skills/baton-bootstrap/SKILL.md). Re-running it is how you resume
+after a half-failure; `--dry-run` prints the plan and touches nothing; a value that would
+*change* in an existing config needs `--force`.
 
 ## Credential roles
 
@@ -184,7 +197,8 @@ link the PR back to the item. Full rules and where each one is enforced:
 ## Usage
 
 ```bash
-baton init --base-url https://p --workspace w --board APP  # write .baton/config.yaml
+baton bootstrap --base-url https://p --workspace w --board APP --repo O/R --check test
+                                    # create/adopt repo+board, protect, write config
 baton doctor                        # validate config + credential roles + discovery
 baton stages                        # the board's stages
 baton new --title "Add dark mode" --label type:idea --stage Review
@@ -223,7 +237,7 @@ branch protection:
   acme/app-engine: develop=protected · master=protected
   acme/app-web: develop=UNPROTECTED · master=protected
   ^ an unprotected branch means an agent with push rights skips the PR, the review and CI entirely.
-    Fix: skills/baton-bootstrap/scripts/protect-branches.sh
+    Fix: baton bootstrap --check <your CI check>   (idempotent; protects every repo the config declares)
 stages: Review, Approved, In Progress, Deployed
 epics (native groups): 2 on the board
 

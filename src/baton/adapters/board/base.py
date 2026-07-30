@@ -71,6 +71,42 @@ class BoardBase(ABC):
     def close(self, item_id: str, reason: str = "") -> None:
         ...
 
+    # ---- creation (bootstrap) ----
+    # A board is created ONCE, by `baton bootstrap`, with the admin credential. These
+    # are separate from the item verbs above because everything above assumes the board
+    # already exists — and because a backend where a human creates the project by hand
+    # can still serve the whole lifecycle.
+
+    @abstractmethod
+    def find_project(self) -> dict | None:
+        """The configured project's facts (`{id, identifier, name}`), or **None if it
+        does not exist**. None means "not there", never "could not look" — bootstrap
+        creates on None, so a credential error answered as None creates a duplicate."""
+
+    @abstractmethod
+    def create_project(self, name: str) -> dict:
+        """Create the project the config points at. Same shape as `find_project()`."""
+
+    @abstractmethod
+    def stage_groups(self) -> dict[str, str]:
+        """Stage name -> the backend's own lifecycle group for it (for Plane:
+        `backlog` | `unstarted` | `started` | `completed` | `cancelled`).
+
+        This is what makes a created stage *work*: baton derives an item's open/closed
+        from its stage's group, so a "Deployed" column filed under `backlog` leaves
+        every shipped item reading as open forever. A backend with no such concept
+        returns empty strings.
+        """
+
+    @abstractmethod
+    def create_stage(self, name: str, *, group: str, color: str) -> None:
+        """Add a stage. `group` is the backend's lifecycle group (see `stage_groups`)."""
+
+    @abstractmethod
+    def delete_stage(self, name: str) -> None:
+        """Remove a stage. Destructive on a board with work in it — the caller is
+        responsible for asking first (`bootstrap --prune`)."""
+
     # ---- optional capabilities ----
     # NOT abstract on purpose. Native-first means using what a backend really has
     # rather than flattening every backend to the smallest common shape — so a

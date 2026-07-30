@@ -20,6 +20,10 @@ class FakeAdapter(BoardBase):
         self._items: dict[str, Item] = {}
         self._n = 0
         self._comments: list[tuple[str, str]] = []
+        self.STAGES = list(FakeAdapter.STAGES)       # per instance: tests create stages
+        self._groups = {"Review": "unstarted", "Approved": "unstarted",
+                        "In Progress": "started", "Done": "completed"}
+        self._project: dict | None = {"id": "p1", "identifier": "FAKE", "name": "fake"}
 
     def probe(self): return "fake backend, always reachable"
 
@@ -66,6 +70,23 @@ class FakeAdapter(BoardBase):
     def edit_body(self, item_id, body): self._items[item_id].body = body
 
     def close(self, item_id, reason=""): self._items[item_id].state = "closed"
+
+    # ---- bootstrap surface, in memory ----
+    def find_project(self): return self._project
+
+    def create_project(self, name):
+        self._project = {"id": "p1", "identifier": "FAKE", "name": name}
+        return self._project
+
+    def stage_groups(self): return {s: self._groups.get(s, "") for s in self.STAGES}
+
+    def create_stage(self, name, *, group, color):
+        self.STAGES.append(name)
+        self._groups[name] = group
+
+    def delete_stage(self, name):
+        self.STAGES = [s for s in self.STAGES if s.lower() != name.lower()]
+        self._groups.pop(name, None)
 
 
 def test_lifecycle():

@@ -23,10 +23,15 @@ _DEFAULT_TOKENS = {
 BACKENDS = ("plane",)
 ROLES = ("agent", "admin")
 
+# Which provider serves each adapter role. The value is the FILE NAME under
+# `adapters/<role>/` — see adapters/registry.py. Only the board has ever varied; the
+# other two get a default so no existing config has to be touched to keep working.
+_DEFAULT_ADAPTERS = {"repo": "github", "read": "github_projects"}
+
 # The two branches baton's skills reach for. Names vary per project — trunk-based
 # repos have no integration branch at all, and `main` is as common as `master` — so
 # they are config, not constants baked into a skill.
-_DEFAULT_GIT = {"integration": "develop", "production": "master"}
+DEFAULT_GIT = {"integration": "develop", "production": "master"}
 
 
 def github_token_env(role: str) -> str:
@@ -37,19 +42,32 @@ def github_token_env(role: str) -> str:
 
 @dataclass
 class Config:
-    backend: str                              # "github" | "plane"
+    backend: str                              # the BOARD provider — same as adapters["board"]
     target: dict = field(default_factory=dict)   # github: {repo, owner?, project?}
     labels: dict = field(default_factory=dict)   # {axes: [...]}
     stages: dict = field(default_factory=dict)   # verb->stage aliases: {approve: Approved, ...}
     tokens: dict = field(default_factory=dict)   # role->ENV VAR NAME: {agent: GH_TOKEN, admin: GH_ADMIN_TOKEN}
     repo: str | None = None                       # OWNER/REPO where the CODE lives, when the board is elsewhere
-    git: dict = field(default_factory=lambda: dict(_DEFAULT_GIT))  # {integration, production}
+    git: dict = field(default_factory=lambda: dict(DEFAULT_GIT))  # {integration, production}
     repos: dict = field(default_factory=dict)     # multi-repo project: {area-label-value: OWNER/REPO}
     migrate_from: dict = field(default_factory=dict)  # read-only source board: {repo, project}
     review_label: str | None = None               # label applied on UNEXPECTED (backward) transitions
     memory: str | None = None                     # this project's name in the session-memory store, if any
     projects: dict = field(default_factory=dict)  # sibling boards: {name: path to its .baton/config.yaml or its dir}
+    adapters: dict = field(default_factory=dict)  # role -> provider file name: {board: plane, repo: github}
+    board_stages: list = field(default_factory=list)  # stages the board MUST have (bootstrap creates them)
+    visibility: str | None = None                 # new repos: private | public (bootstrap only)
     path: Path | None = None                     # where it was loaded from
+
+    def __post_init__(self):
+        """`backend:` and `adapters.board` are the same fact. Configs written before
+        `adapters:` existed carry only the first, and code written before it reads only
+        the first — so they are reconciled once, here, instead of every reader having
+        to know both spellings."""
+        self.adapters = {**_DEFAULT_ADAPTERS, **(self.adapters or {})}
+        if self.backend:
+            self.adapters["board"] = self.adapters.get("board") or self.backend
+        self.backend = self.adapters.get("board", self.backend)
 
     def token_env(self, role: str) -> str:
         """The env var NAME holding the credential for `role`."""
@@ -125,7 +143,10 @@ def load(start: Path | None = None) -> Config:
 
 def load_file(p: Path) -> Config:
     data = yaml.safe_load(p.read_text()) or {}
-    backend = data.get("backend")
+    adapters = data.get("adapters", {}) or {}
+    # `backend:` is the older spelling of `adapters.board`. Both are read, forever:
+    # every config written before this key existed is on someone's disk.
+    backend = data.get("backend") or adapters.get("board")
     if backend == "github":
         raise BatonError(
             f"backend 'github' (GitHub Projects) is no longer a board backend, in {p}. "
@@ -136,12 +157,15 @@ def load_file(p: Path) -> Config:
                          f"(got {backend!r}) in {p}")
     return Config(
         backend=backend,
+        adapters=adapters,
+        board_stages=data.get("board_stages", []) or [],
+        visibility=data.get("visibility"),
         target=data.get("target", {}) or {},
         labels=data.get("labels", {}) or {},
         stages=data.get("stages", {}) or {},
         tokens=data.get("tokens", {}) or {},
         repo=data.get("repo"),
-        git={**_DEFAULT_GIT, **(data.get("git") or {})},
+        git={**DEFAULT_GIT, **(data.get("git") or {})},
         repos=data.get("repos", {}) or {},
         migrate_from=data.get("migrate_from", {}) or {},
         review_label=data.get("review_label"),
@@ -151,21 +175,56 @@ def load_file(p: Path) -> Config:
     )
 
 
-def write_config(backend: str, target: dict, *, repo: str | None = None,
-                 force: bool = False, root: Path | None = None) -> Path:
-    """Write a minimal .baton/config.yaml under `root` (cwd). Everything else —
-    project node id, status field id, stage option ids — stays discovered."""
+# The keys `baton bootstrap` OWNS. Everything else in the file — `tokens`, `memory`,
+# `projects`, the `stages` verb aliases, the multi-repo `repos` map — is the human's,
+# and is merged through untouched. Writing the whole file instead would silently drop
+# work nobody can recover.
+_OWNED = ("adapters", "target", "repo", "git", "visibility", "board_stages")
+
+
+def write_config(board: str, target: dict, *, repo: str | None = None,
+                 git: dict | None = None, visibility: str | None = None,
+                 board_stages: list | None = None, force: bool = False,
+                 root: Path | None = None) -> tuple[Path, dict, bool]:
+    """Write/merge .baton/config.yaml under `root` (cwd).
+
+    Returns `(path, changed, comments_lost)`. Nothing is printed here — the caller owns
+    output — but the caller needs both facts: WHICH values it replaced, and whether the
+    file it rewrote had comments (`yaml.safe_dump` cannot keep them).
+
+    A value that would CHANGE an existing one needs `--force`. A rerun passing the same
+    values changes nothing and so never asks — which is what makes bootstrap resumable
+    after a half-failure.
+    """
     p = (root or Path.cwd()) / ".baton" / "config.yaml"
-    if p.exists() and not force:
-        raise BatonError(f"{p} already exists (use --force to overwrite)")
     if not (target.get("base_url") and target.get("workspace")):
-        raise BatonError(f"{backend} needs --base-url and --workspace")
-    data: dict = {"backend": backend, "target": target}
-    if repo:
-        data["repo"] = repo                  # the code host — the board knows no git
+        raise BatonError(f"{board} needs --base-url and --workspace")
+
+    raw = p.read_text() if p.is_file() else ""
+    existing = (yaml.safe_load(raw) or {}) if raw else {}
+    # Only the board is named: `repo` and `read` have defaults, and a config that does
+    # not repeat a default is a config with less to contradict.
+    new = {"adapters": {"board": board}, "target": target}
+    for key, val in (("repo", repo), ("git", git), ("visibility", visibility),
+                     ("board_stages", board_stages)):
+        if val:
+            new[key] = val
+
+    changed = {k: (existing[k], v) for k, v in new.items()
+               if k in existing and existing[k] != v}
+    if changed and not force:
+        lines = "\n".join(f"  {k}: {old!r} -> {want!r}" for k, (old, want) in changed.items())
+        raise BatonError(
+            f"{p} already says something different:\n{lines}\n"
+            f"Re-run with --force to replace those values, or drop the flags to keep them.")
+
+    merged = {**existing, **new}
+    # Owned keys first, in a stable order, so a human diff of this file reads.
+    ordered = {k: merged[k] for k in _OWNED if k in merged}
+    ordered.update({k: v for k, v in merged.items() if k not in ordered})
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
-    return p
+    p.write_text(yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False))
+    return p, changed, "#" in raw
 
 
 def load_project(name_or_path: str, base: Config) -> Config:
