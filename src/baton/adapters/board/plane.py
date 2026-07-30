@@ -24,7 +24,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from ...base import Adapter, BatonError, Comment, Group, Item
+from ...base import BatonError, Comment, Group, Item
+from .base import BoardBase
 
 _TAG = re.compile(r"<[^>]+>")
 
@@ -42,7 +43,7 @@ def _strip_html(s: str) -> str:
 _CLOSED_GROUPS = {"completed", "cancelled"}
 
 
-class PlaneAdapter(Adapter):
+class PlaneBoard(BoardBase):
     def __init__(self, target: dict, token: str | None = None):
         self.base_url = (target.get("base_url") or "").rstrip("/")
         self.workspace = target.get("workspace")
@@ -317,3 +318,8 @@ class PlaneAdapter(Adapter):
         if cancelled is None:
             raise BatonError("no completed/cancelled state found on this project's board")
         self.set_stage(item_id, cancelled["name"])
+
+
+# What `registry.resolve('board', 'plane')` returns. The class name is free to
+# change; this constant and the FILE NAME are the contract.
+ADAPTER = PlaneBoard

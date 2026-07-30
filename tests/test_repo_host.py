@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from baton.adapters.repos import github as gh_mod  # noqa: E402
+from baton.adapters.repo import github as gh_mod  # noqa: E402
 from baton.base import BatonError  # noqa: E402
 
 

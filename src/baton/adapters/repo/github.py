@@ -9,10 +9,11 @@ abstraction here until a second code host exists to contrast it with.
 from __future__ import annotations
 
 from ...base import BatonError
+from .base import RepoBase
 from .._gh import gh, use_token
 
 
-class GitHubRepo:
+class GitHubRepo(RepoBase):
     def __init__(self, repo: str, token: str | None = None):
         use_token(token)
         if not repo:
@@ -47,3 +48,8 @@ class GitHubRepo:
         perms = gh("api", f"repos/{self.repo}", "--jq", ".permissions", want_json=True) or {}
         can = ", ".join(k for k in ("admin", "maintain", "push", "pull") if perms.get(k)) or "none"
         return f"{login} on {self.repo} — {can}"
+
+
+# What `registry.resolve('repo', 'github')` returns. The class name is free to
+# change; this constant and the FILE NAME are the contract.
+ADAPTER = GitHubRepo

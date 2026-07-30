@@ -11,10 +11,11 @@ project/field/option id is ever hardcoded.
 from __future__ import annotations
 
 from ...base import BatonError, Comment, Item
+from .base import ReadBase
 from .._gh import gh, use_token
 
 
-class GitHubProjectsSource:
+class GitHubProjectsRead(ReadBase):
     def __init__(self, repo: str, project: int | str | None = None,
                  token: str | None = None, owner: str | None = None,
                  status_field: str = "Status"):
@@ -130,3 +131,8 @@ class GitHubProjectsSource:
                         author=(c.get("author") or {}).get("login", ""),
                         created_at=c.get("createdAt") or "")
                 for c in j.get("comments", [])]
+
+
+# What `registry.resolve('read', 'github_projects')` returns. The class name is free to
+# change; this constant and the FILE NAME are the contract.
+ADAPTER = GitHubProjectsRead
