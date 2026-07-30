@@ -2,7 +2,7 @@
 label caching, stage/state mapping) — no network, no live Plane instance.
 
 A FakePlane stands in for the REST API by matching on (method, path) the
-same way the real server would route them, so PlaneAdapter's own code (not
+same way the real server would route them, so PlaneBoard's own code (not
 urllib) is what's under test. Run: `python tests/test_plane_adapter.py` or
 `pytest`.
 """
@@ -13,13 +13,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("PLANE_API_KEY", "fake-token")
 
-from baton.adapters.boards.plane import PlaneAdapter  # noqa: E402
+from baton.adapters.board.plane import PlaneBoard  # noqa: E402
 from baton.base import BatonError  # noqa: E402
 
 
 class FakePlane:
     """In-memory stand-in for the Plane REST API, keyed the way
-    PlaneAdapter._request builds paths: '<workspace>/projects/...'."""
+    PlaneBoard._request builds paths: '<workspace>/projects/...'."""
 
     def __init__(self):
         self.states = [
@@ -112,7 +112,7 @@ class FakePlane:
 
 
 def make_adapter():
-    ad = PlaneAdapter({"base_url": "http://plane.local", "workspace": "acme",
+    ad = PlaneBoard({"base_url": "http://plane.local", "workspace": "acme",
                        "project": "ENG"})
     fake = FakePlane()
     ad._request = lambda method, path, body=None, params=None: fake.request(

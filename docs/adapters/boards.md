@@ -3,8 +3,8 @@
 **A board is where work-item state lives.** It is the only family that writes, the
 only one with a real contract, and the only one baton's lifecycle verbs talk to.
 
-Contract: [`src/baton/base.py`](../../src/baton/base.py) → `Adapter`.
-Reference implementation: [`src/baton/adapters/boards/plane.py`](../../src/baton/adapters/boards/plane.py).
+Contract: [`src/baton/adapters/board/base.py`](../../src/baton/adapters/board/base.py) → `BoardBase`.
+Reference implementation: [`src/baton/adapters/board/plane.py`](../../src/baton/adapters/board/plane.py).
 
 ## The one idea to internalise first
 
@@ -140,8 +140,11 @@ filing a task. Error message should point at the roadmap skill.
 
 ## Wiring it up
 
-1. Drop the module in `src/baton/adapters/boards/`.
-2. Add a branch to `get_adapter` in [`adapters/__init__.py`](../../src/baton/adapters/__init__.py).
+1. Drop the module in `src/baton/adapters/board/`. **The file name is the config
+   value** — `board/mytracker.py` is what `backend: mytracker` reaches.
+2. Export the class: `ADAPTER = MyTrackerBoard` at the bottom of the module. That is
+   the whole registration — there is no factory to edit and no list to keep in sync
+   (see [`adapters/registry.py`](../../src/baton/adapters/registry.py)).
 3. Add the name to `BACKENDS` in [`config.py`](../../src/baton/config.py), plus its
    default credential env vars in `_DEFAULT_TOKENS`:
 

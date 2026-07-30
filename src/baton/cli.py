@@ -12,11 +12,10 @@ import os
 import sys
 
 from . import __version__
-from .adapters import get_adapter
-from .adapters import get_repo, get_source
 from .base import PRIORITIES, BatonError, Item
 from .config import (BACKENDS, ROLES, find_config, github_token_env, load,
                      load_project, write_config)
+from .core import Baton
 
 
 def _emit(obj, as_json: bool):
@@ -35,60 +34,20 @@ def _emit(obj, as_json: bool):
             print(obj)
 
 
-def _flag_backward(ad, cfg, item_id, prev_stage, target_stage):
-    """Flag an UNEXPECTED (backward) stage transition — e.g. Approved→Review — with
-    `config.review_label`, so the user evaluates it. Normal forward moves (Review→
-    Approved→In Progress→...) and creation are NOT flagged. Never fails the move."""
-    if not cfg.review_label or not prev_stage:
-        return
-    try:
-        order = [s.lower() for s in ad.list_stages()]
-        p, t = prev_stage.lower(), target_stage.lower()
-        if p in order and t in order and order.index(t) < order.index(p):
-            ad.set_labels(item_id, add=[cfg.review_label])
-    except BatonError:
-        pass
-
-
-def _require_verify(ad, cfg, item_id, prev_stage, target_stage):
-    """Refuse a move that jumps OVER the verify stage.
-
-    Opt-in: only when the project declares `stages.verify`. It gates the STAGE, not
-    the work — nothing stops two `advance` calls in a row. What it buys is that
-    skipping verification stops being an oversight nobody notices and becomes a
-    deliberate move, recorded in the board's own history.
-    """
-    if "verify" not in cfg.stages or not prev_stage:
-        return
-    verify_stage = cfg.stages["verify"]
-    try:
-        order = [s.lower() for s in ad.list_stages()]
-        v = order.index(verify_stage.lower())
-        p, t = order.index(prev_stage.lower()), order.index(target_stage.lower())
-    except (BatonError, ValueError):
-        return          # unknown stage names — not our call to block on
-    if p < v < t:
-        raise BatonError(
-            f"#{item_id}: {prev_stage} → {target_stage} skips {verify_stage!r}. "
-            f"Run the baton-verify skill — it checks the diff against the acceptance "
-            f"criteria and the scope boundary, and advances the item itself. To move "
-            f"it without verifying, go through {verify_stage!r} explicitly.")
-
-
-def cmd_new(a, ad, cfg):
-    it = ad.create(a.title, a.body or "", a.label or [], priority=a.priority)
+def cmd_new(a, b, cfg):
+    it = b.board.create(a.title, a.body or "", a.label or [], priority=a.priority)
     if a.stage:
-        ad.set_stage(it.id, a.stage)
+        b.board.set_stage(it.id, a.stage)
         it.stage = a.stage
     _emit(it, a.json)
 
 
-def cmd_show(a, ad, cfg):
-    it = ad.get(a.id)
+def cmd_show(a, b, cfg):
+    it = b.board.get(a.id)
     if not a.comments:
         _emit(it, a.json)
         return
-    cs = ad.comments(a.id)
+    cs = b.board.comments(a.id)
     if a.json:
         _emit({"item": it, "comments": cs}, True)
         return
@@ -102,14 +61,14 @@ def cmd_show(a, ad, cfg):
             print(f"  {line}")
 
 
-def cmd_list(a, ad, cfg):
-    _emit(ad.list(stage=a.stage, label=a.label, state=a.state, group=a.group), a.json)
+def cmd_list(a, b, cfg):
+    _emit(b.board.list(stage=a.stage, label=a.label, state=a.state, group=a.group), a.json)
 
 
-def cmd_groups(a, ad, cfg):
+def cmd_groups(a, b, cfg):
     """The roadmap: every epic, its target date, and how much of it is done. Read
     from the board every time, so there is nothing to keep up to date."""
-    gs = ad.list_groups()
+    gs = b.board.list_groups()
     if a.json:
         _emit(gs, True)
         return
@@ -121,74 +80,56 @@ def cmd_groups(a, ad, cfg):
               + (f"  due {g.target_date}" if g.target_date else "  (no target date)"))
 
 
-def cmd_group(a, ad, cfg):
-    ad.set_group(a.id, a.to)
+def cmd_group(a, b, cfg):
+    b.board.set_group(a.id, a.to)
     _emit(f"#{a.id} → epic {a.to}", a.json)
 
 
-def cmd_stages(a, ad, cfg):
-    st = ad.list_stages()
+def cmd_stages(a, b, cfg):
+    st = b.board.list_stages()
     _emit(st if a.json else "\n".join(st) or "(no status field)", a.json)
 
 
-def cmd_advance(a, ad, cfg):
-    prev = ad.get(a.id).stage
-    _require_verify(ad, cfg, a.id, prev, a.to)
-    ad.set_stage(a.id, a.to)
-    _flag_backward(ad, cfg, a.id, prev, a.to)
-    _emit(f"#{a.id} → {a.to}", a.json)
-
-
-_DEFAULT_STAGE = {"approve": "Approved", "start": "In Progress",
-                  "verify": "Verify", "ship": "Deployed"}
-
-
-def _verb_stage(cfg, verb: str) -> str:
-    """Resolve a lifecycle verb to a board stage name (config alias or default)."""
-    return cfg.stages.get(verb, _DEFAULT_STAGE[verb])
+def cmd_advance(a, b, cfg):
+    _emit(f"#{a.id} → {b.advance(a.id, a.to)}", a.json)
 
 
 def _cmd_verb(verb: str):
-    def fn(a, ad, cfg):
-        st = _verb_stage(cfg, verb)
-        prev = ad.get(a.id).stage
-        _require_verify(ad, cfg, a.id, prev, st)
-        ad.set_stage(a.id, st)
-        _flag_backward(ad, cfg, a.id, prev, st)
-        _emit(f"#{a.id} → {st}", a.json)
+    def fn(a, b, cfg):
+        _emit(f"#{a.id} → {b.advance_verb(verb, a.id)}", a.json)
     return fn
 
 
-def cmd_comment(a, ad, cfg):
+def cmd_comment(a, b, cfg):
     body = a.body if a.body is not None else sys.stdin.read()
-    ad.comment(a.id, body)
+    b.board.comment(a.id, body)
     _emit(f"commented on #{a.id}", a.json)
 
 
-def cmd_close(a, ad, cfg):
+def cmd_close(a, b, cfg):
     if a.reason:
-        ad.comment(a.id, a.reason)
-    ad.close(a.id, a.reason or "")
+        b.board.comment(a.id, a.reason)
+    b.board.close(a.id, a.reason or "")
     _emit(f"closed #{a.id}", a.json)
 
 
-def cmd_priority(a, ad, cfg):
-    ad.set_priority(a.id, a.to)
+def cmd_priority(a, b, cfg):
+    b.board.set_priority(a.id, a.to)
     _emit(f"#{a.id} priority → {a.to}", a.json)
 
 
-def cmd_labels(a, ad, cfg):
-    ad.set_labels(a.id, add=a.add or [], remove=a.remove or [])
+def cmd_labels(a, b, cfg):
+    b.board.set_labels(a.id, add=a.add or [], remove=a.remove or [])
     _emit(f"updated labels on #{a.id}", a.json)
 
 
-def cmd_body(a, ad, cfg):
+def cmd_body(a, b, cfg):
     body = a.body if a.body is not None else sys.stdin.read()
-    ad.edit_body(a.id, body)
+    b.board.edit_body(a.id, body)
     _emit(f"updated body of #{a.id}", a.json)
 
 
-def cmd_init(a, ad, cfg):
+def cmd_init(a, b, cfg):
     """Write .baton/config.yaml for a board that ALREADY exists. Creating the repo
     and the board is `baton-bootstrap` (admin credential); this only records where
     they are, then proves discovery reaches them."""
@@ -214,7 +155,7 @@ def _probe(label: str, build) -> bool:
         return False
 
 
-def cmd_export(a, ad, cfg):
+def cmd_export(a, b, cfg):
     """Read an old GitHub Projects board out to JSON, comments included, so the
     migration skill can move it onto the real board. Read-only.
 
@@ -229,7 +170,7 @@ def cmd_export(a, ad, cfg):
             "no source board. Either pass --from-github OWNER/REPO, or declare it in "
             "this project's .baton/config.yaml:\n"
             "  migrate_from: {repo: OWNER/REPO, project: 5}")
-    src = get_source("github", repo=repo, project=project, owner=a.owner)
+    src = b.read("github", repo=repo, project=project, owner=a.owner)
     items = src.list(state=a.state)
     out = {
         "source": {"repo": repo, "project": project},
@@ -249,7 +190,7 @@ def cmd_export(a, ad, cfg):
     return 0
 
 
-def cmd_config(a, ad, cfg):
+def cmd_config(a, b, cfg):
     """Print one config value by dotted path — `baton config git.integration`.
 
     Exists so a skill or a shell script can ASK instead of hardcoding. A branch name
@@ -265,7 +206,7 @@ def cmd_config(a, ad, cfg):
     return 0
 
 
-def cmd_doctor(a, ad, cfg):
+def cmd_doctor(a, b, cfg):
     print(f"baton {__version__}")
     print(f"config: {cfg.path}")
     print(f"backend: {cfg.backend}   board: {cfg.target}")
@@ -285,7 +226,7 @@ def cmd_doctor(a, ad, cfg):
                 print(f"token[{role}] ${var}: NOT set — skipped")
                 continue
             print(f"token[{role}] ${var}:")
-            ok &= _probe(f"board ({cfg.backend})", lambda r=role: get_adapter(cfg, r))
+            ok &= _probe(f"board ({cfg.backend})", lambda r=role: Baton(cfg, r).board)
             # git is a SECOND system on a SECOND credential — "the board answers"
             # says nothing about whether the agent can push. And a credential can
             # reach one repo of a multi-repo project and not the next, so check each.
@@ -294,7 +235,8 @@ def cmd_doctor(a, ad, cfg):
                 if not os.environ.get(gh_var):
                     print(f"  code {r} ${gh_var}: NOT set — skipped")
                 else:
-                    ok &= _probe(f"code {r}", lambda x=r, ro=role: get_repo(x, ro))
+                    ok &= _probe(f"code {r}",
+                                 lambda x=r, ro=role: Baton(cfg, ro).repo(x))
     finally:
         if saved is None:
             os.environ.pop("GH_TOKEN", None)
@@ -311,7 +253,7 @@ def cmd_doctor(a, ad, cfg):
         holes = False
         for r in cfg.all_repos:
             try:
-                st = get_repo(r).branch_protection(wanted)
+                st = b.repo(r).branch_protection(wanted)
                 print(f"  {r}: " + " · ".join(f"{b}={s}" for b, s in st.items()))
                 holes |= "UNPROTECTED" in st.values()
             except BatonError as e:
@@ -322,7 +264,7 @@ def cmd_doctor(a, ad, cfg):
             print("    Fix: skills/baton-bootstrap/scripts/protect-branches.sh")
 
     try:
-        stages = ad.list_stages()
+        stages = b.board.list_stages()
         print(f"stages: {', '.join(stages) or '(none)'}")
     except BatonError as e:
         print(f"stages FAILED: {e}")
@@ -330,9 +272,9 @@ def cmd_doctor(a, ad, cfg):
 
     # Capabilities are CHECKED, not declared — a backend's edition or version can
     # turn a feature off, and finding that out here beats finding it out mid-verb.
-    if "groups" in ad.capabilities():
+    if "groups" in b.board.capabilities():
         try:
-            print(f"epics (native groups): {len(ad.list_groups())} on the board")
+            print(f"epics (native groups): {len(b.board.list_groups())} on the board")
         except BatonError as e:
             print(f"epics (native groups): FAILED — {e}")
             ok = False
@@ -462,14 +404,14 @@ def main(argv=None) -> int:
         if args.cmd == "init":               # runs WITHOUT a config — it writes one
             return args.fn(args, None, None) or 0
         if args.cmd == "export":             # config OPTIONAL: it holds `migrate_from`
-            return args.fn(args, None, load() if find_config() else None) or 0
+            cfg = load() if find_config() else None
+            return args.fn(args, Baton(cfg), cfg) or 0
         cfg = load()
         if getattr(args, "project", None):
             cfg = load_project(args.project, cfg)
         if args.cmd == "config":             # reads the config, never the backend
             return args.fn(args, None, cfg) or 0
-        ad = get_adapter(cfg, args.role)
-        rc = args.fn(args, ad, cfg)
+        rc = args.fn(args, Baton(cfg, args.role), cfg)
         return rc or 0
     except BatonError as e:
         print(f"baton: {e}", file=sys.stderr)

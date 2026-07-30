@@ -28,12 +28,14 @@ prompts, so a new agent is a symlink into wherever that agent reads skills from.
 baton/
 ├── src/baton/
 │   ├── cli.py            # verbs: init/config/export/new/priority/verify/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
-│   ├── base.py            # Adapter contract + Item dataclass — every backend implements this
+│   ├── core.py            # class Baton — the one door: skills and cli.py talk to this
+│   ├── base.py            # shared vocabulary: BatonError + Item/Group/Comment
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
-│   └── adapters/          # three families — see docs/adapters/
-│       ├── boards/        # read-WRITE: where item state lives (plane.py)
-│       ├── sources/       # read-ONLY: old trackers, read once to migrate off (github_projects.py)
-│       └── repos/         # the code host: permissions, git work (github.py)
+│   └── adapters/          # three roles — see docs/adapters/
+│       ├── registry.py    # name -> class by file name; the only importer of a provider
+│       ├── board/         # read-WRITE: where item state lives (plane.py)
+│       ├── read/          # read-ONLY: old trackers, read once to migrate off (github_projects.py)
+│       └── repo/          # the code host: permissions, branches, PRs (github.py)
 ├── docs/                  # adapters/ (how to write each family) · git-flow.md · design/
 ├── skills/                # the judgment layer, calls the CLI. Each skill's templates/ is a symlink into ↓
 ├── templates/             # item bodies (task/subtask/bug), epic description, triage verdict, PR review

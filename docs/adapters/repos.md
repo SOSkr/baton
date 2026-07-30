@@ -3,8 +3,8 @@
 **A repo adapter is where the code lives** — branches, PRs, protections, releases. It
 is not a board and knows nothing about work-items.
 
-Reference implementation:
-[`src/baton/adapters/repos/github.py`](../../src/baton/adapters/repos/github.py).
+Contract: [`src/baton/adapters/repo/base.py`](../../src/baton/adapters/repo/base.py) → `RepoBase`.
+Reference implementation: [`src/baton/adapters/repo/github.py`](../../src/baton/adapters/repo/github.py).
 
 ## Why this family is tiny, and should stay tiny
 
@@ -92,13 +92,15 @@ backend holds the board. A new host needs its own equivalent in `_DEFAULT_TOKENS
 
 ## Wiring it up
 
-1. Drop the module in `src/baton/adapters/repos/`.
-2. Add a branch to `get_repo` in [`adapters/__init__.py`](../../src/baton/adapters/__init__.py).
-3. Add a `repo_backend:` config key **only when a second host actually exists** — until
-   then, inferring GitHub is correct and one fewer thing to configure.
-4. If it shells out to a CLI, put the helper in
-   [`adapters/_gh.py`](../../src/baton/adapters/_gh.py)'s sibling position, not inside
-   the class — sources and repos share it.
+1. Drop the module in `src/baton/adapters/repo/`, named for the config value, and
+   export `ADAPTER = MyHostRepo`. Nothing else registers it.
+2. Implement `RepoBase`. Ask the HOST, never a local working tree — a caller must
+   not have to be standing inside a clone.
+3. Say which host a project uses in the config (`adapters.repo`); GitHub stays the
+   default so existing projects keep working untouched.
+4. If it shells out to a CLI, put the helper next to
+   [`adapters/_gh.py`](../../src/baton/adapters/_gh.py), not inside the class —
+   `read/` and `repo/` share it.
 
 ## When it is right to grow this family
 

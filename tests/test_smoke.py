@@ -8,10 +8,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from baton.base import Adapter, BatonError, Comment, Item  # noqa: E402
+from baton.adapters.board.base import BoardBase  # noqa: E402
+from baton.base import BatonError, Comment, Item  # noqa: E402
+from baton.core import Baton  # noqa: E402
 
 
-class FakeAdapter(Adapter):
+class FakeAdapter(BoardBase):
     STAGES = ["Review", "Approved", "In Progress", "Done"]
 
     def __init__(self):
@@ -120,12 +122,12 @@ def test_config_load(tmp_path=None):
 
 
 def test_verb_stage():
-    from baton.cli import _verb_stage
+    from baton.adapters.board import verb_stage
     from baton.config import Config
     c = Config(backend="plane", stages={"approve": "Aceptada"})
-    assert _verb_stage(c, "approve") == "Aceptada"   # config alias wins
-    assert _verb_stage(c, "start") == "In Progress"  # default
-    assert _verb_stage(c, "ship") == "Deployed"
+    assert verb_stage(c, "approve") == "Aceptada"   # config alias wins
+    assert verb_stage(c, "start") == "In Progress"  # default
+    assert verb_stage(c, "ship") == "Deployed"
 
 
 def test_backward_flag():
@@ -139,11 +141,11 @@ def test_backward_flag():
     a.set_stage(it.id, "Approved")
 
     # FORWARD (Approved→In Progress): NOT flagged
-    cmd_advance(argparse.Namespace(id=it.id, to="In Progress", json=False), a, cfg)
+    cmd_advance(argparse.Namespace(id=it.id, to="In Progress", json=False), Baton(cfg, board=a), cfg)
     assert "revisar-cambio" not in a.get(it.id).labels
 
     # BACKWARD (In Progress→Review): flagged
-    cmd_advance(argparse.Namespace(id=it.id, to="Review", json=False), a, cfg)
+    cmd_advance(argparse.Namespace(id=it.id, to="Review", json=False), Baton(cfg, board=a), cfg)
     assert "revisar-cambio" in a.get(it.id).labels
 
     # creation is NOT flagged (no stage yet / forward only)
@@ -153,7 +155,9 @@ def test_backward_flag():
     a2 = FakeAdapter()
     it2 = a2.create("y", "", [])
     a2.set_stage(it2.id, "Approved")
-    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False), a2, Config(backend="plane"))
+    c2 = Config(backend="plane")
+    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False),
+                Baton(c2, board=a2), c2)
     assert a2.get(it2.id).labels == []
 
 
@@ -169,7 +173,8 @@ def test_verify_stage_cannot_be_skipped():
     cfg = Config(backend="plane", stages={"verify": "In Progress"})
 
     def advance(item, to, c=cfg, ad=None):
-        cmd_advance(argparse.Namespace(id=item, to=to, json=False), ad or a, c)
+        cmd_advance(argparse.Namespace(id=item, to=to, json=False),
+                    Baton(c, board=ad or a), c)
 
     it = a.create("x", "", [])
     a.set_stage(it.id, "Approved")
@@ -202,6 +207,19 @@ def test_verify_stage_cannot_be_skipped():
     assert c.get(it3.id).stage == "Done"
 
 
+def test_version_matches_pyproject():
+    """`__version__` and `pyproject.toml` drifted apart once already: PyPI served
+    0.3.0 while `baton doctor` printed 0.1.0 to whoever ran it. Two literals, one
+    number, nothing failing — so this is the thing that fails."""
+    import tomllib
+
+    import baton
+    root = Path(__file__).resolve().parents[1]
+    declared = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    assert baton.__version__ == declared, \
+        f"__init__.py says {baton.__version__}, pyproject.toml says {declared}"
+
+
 if __name__ == "__main__":
     test_lifecycle()
     test_verify_stage_cannot_be_skipped()
@@ -209,6 +227,7 @@ if __name__ == "__main__":
     test_labels_add_remove()
     test_verb_stage()
     test_backward_flag()
+    test_version_matches_pyproject()
     try:
         test_config_load()
     except ImportError:
