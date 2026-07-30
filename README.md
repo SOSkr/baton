@@ -144,6 +144,12 @@ On GitHub it reports the token's **permissions on the repo**, which is what make
 split checkable: if the `agent` line comes back with `admin`, the separation is
 decoration and doctor shows you so.
 
+It also reports **branch protection per repo** — the one state that can be silently
+wrong forever. In a multi-repo project it is easy to protect the repo you were standing
+in and never notice the second one is open, and an open branch means an agent with push
+rights skips the PR, the review and CI entirely. Reading it needs no admin, so the agent
+credential can surface a hole it cannot fix.
+
 Asking for `admin` when its variable is unset is an **error**, not a fallback: an admin
 op silently running with agent rights either fails confusingly or quietly does less than
 you think. The split only buys you anything if the admin credential is genuinely absent
@@ -199,17 +205,25 @@ baton export --state all             # read the OLD board out (migrate_from in c
 
 ```
 $ baton doctor
-baton 0.1.0
+baton 0.2.0
 config: .baton/config.yaml
 backend: plane   board: {'base_url': 'https://plane.acme.com', 'workspace': 'acme', 'project': 'APP'}
-code repo: acme/app
+repos: engine=acme/app-engine, web=acme/app-web
 token[agent] $PLANE_API_KEY:
   board (plane): OK — acme/APP — Acme App
-  code (github) $GH_TOKEN: OK — acme-bot on acme/app — push, pull
+  code acme/app-engine: OK — acme-bot on acme/app-engine — push, pull
+  code acme/app-web: OK — acme-bot on acme/app-web — push, pull
 token[admin] $PLANE_ADMIN_API_KEY:
   board (plane): OK — acme/APP — Acme App
-  code (github) $GH_ADMIN_TOKEN: OK — alice on acme/app — admin, maintain, push, pull
+  code acme/app-engine: OK — alice on acme/app-engine — admin, maintain, push, pull
+  code acme/app-web: OK — alice on acme/app-web — admin, maintain, push, pull
+branch protection:
+  acme/app-engine: develop=protected · master=protected
+  acme/app-web: develop=UNPROTECTED · master=protected
+  ^ an unprotected branch means an agent with push rights skips the PR, the review and CI entirely.
+    Fix: skills/baton-bootstrap/scripts/protect-branches.sh
 stages: Review, Approved, In Progress, Deployed
+epics (native groups): 2 on the board
 
 $ baton show 42
 #42 [Approved] Add dark mode
@@ -350,7 +364,7 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
 ## Requirements
 
 - `gh` CLI, authenticated, with `project` scope (GitHub backend).
-- Python ≥ 3.11. Run with `uv run baton ...` or `pipx install .`.
+- Python ≥ 3.11: `pipx install baton-board` (or `uv run baton ...` from a clone).
 
 The distribution is **`baton-board`** (`baton` was already taken on PyPI by an
 unrelated iRODS wrapper); the command it installs is `baton`.
@@ -372,7 +386,8 @@ disagree, because a wrong version number on PyPI cannot be taken back.
 ## Status
 
 Plane board adapter and the GitHub code-host client done, both verified live.
-Publishing pending: skills.sh, and PyPI as `baton-board`.
+Published: [`baton-board` on PyPI](https://pypi.org/project/baton-board/), and
+`npx skills add SOSkr/baton` for the skills.
 
 ## License
 

@@ -12,6 +12,7 @@
 # Usage (from the target repo, or anywhere with --repo):
 #   protect-branches.sh --check test
 #   protect-branches.sh --repo acme/app --check test --check lint --reviews 2
+#   protect-branches.sh --all-repos --check test   # every repo the config declares
 #   protect-branches.sh --no-checks          # CI does not exist yet; rerun later
 #
 # Idempotent: the API call is a PUT, so rerunning is safe and is how you add a
@@ -19,6 +20,7 @@
 set -euo pipefail
 
 repo=""
+all_repos=""
 reviews=1
 enforce_admins=false
 no_checks=""
@@ -27,6 +29,7 @@ checks=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo)            repo="${2:?--repo needs OWNER/REPO}"; shift 2 ;;
+        --all-repos)       all_repos=1; shift ;;
         --check)           checks+=("${2:?--check needs a name}"); shift 2 ;;
         --no-checks)       no_checks=1; shift ;;
         --reviews)         reviews="${2:?--reviews needs a number}"; shift 2 ;;
@@ -58,15 +61,6 @@ else
     echo "note: \$GH_ADMIN_TOKEN not set — using the current credential." >&2
 fi
 
-[ -n "$repo" ] || repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-
-perms=$(gh api "repos/$repo" --jq '.permissions.admin')
-if [ "$perms" != "true" ]; then
-    echo "error: this credential has no admin on $repo — branch protection needs it." >&2
-    echo "       Set \$GH_ADMIN_TOKEN, or have whoever holds admin run this." >&2
-    exit 1
-fi
-
 # Branch names come from the project's config; the classic pair is only a fallback.
 production=$(baton config git.production 2>/dev/null || echo master)
 integration=$(baton config git.integration 2>/dev/null || echo develop)
@@ -94,23 +88,61 @@ body=$(jq -n \
      }')
 
 failed=0
-for br in "$production" "$integration"; do
-    if [ "$br" = "$production" ] && [ "$br" = "$integration" ] && [ -n "${done_once:-}" ]; then
-        continue                      # trunk-based: both names point at one branch
-    fi
-    done_once=1
-    if ! gh api "repos/$repo/branches/$br" --silent 2>/dev/null; then
-        echo "  $br: does NOT exist — skipped" >&2
-        failed=1
-        continue
-    fi
-    gh api -X PUT "repos/$repo/branches/$br/protection" --input - <<<"$body" > /dev/null
-    # Read it back. A PUT that returned 200 and a branch that is actually protected
-    # are different claims.
-    state=$(gh api "repos/$repo/branches/$br" \
-            --jq '"protected=\(.protected) checks=\(.protection.required_status_checks.contexts // [] | join(","))"')
-    echo "  $br: $state"
-done
 
-[ "$failed" -eq 0 ] || { echo "some branches were skipped — see above" >&2; exit 1; }
-echo "Protected $repo: reviews>=$reviews, enforce_admins=$enforce_admins."
+protect_one() {
+    local repo=$1 done_once="" br state
+    echo "$repo:"
+
+    # Per repo, not once: a credential can hold admin on one repo of a project and
+    # not the next, exactly like the reachability check in `baton doctor`.
+    if [ "$(gh api "repos/$repo" --jq '.permissions.admin' 2>/dev/null)" != "true" ]; then
+        echo "  no admin on this repo — skipped" >&2
+        echo "  (set \$GH_ADMIN_TOKEN, or have whoever holds admin run this)" >&2
+        failed=1
+        return
+    fi
+
+    # Setting de repo, no de protección, pero la misma clase de política: agnóstica
+    # del lenguaje y se pone una vez. Con agentes pesa más de lo normal — un día de
+    # trabajo son veinte ramas, y sin esto quedan las veinte colgando en el remoto.
+    gh api -X PATCH "repos/$repo" -F delete_branch_on_merge=true > /dev/null
+    echo "  delete_branch_on_merge: true"
+
+    for br in "$production" "$integration"; do
+        if [ "$br" = "$production" ] && [ "$br" = "$integration" ] && [ -n "$done_once" ]; then
+            continue                  # trunk-based: both names point at one branch
+        fi
+        done_once=1
+        if ! gh api "repos/$repo/branches/$br" --silent 2>/dev/null; then
+            echo "  $br: does NOT exist — skipped" >&2
+            failed=1
+            continue
+        fi
+        gh api -X PUT "repos/$repo/branches/$br/protection" --input - <<<"$body" > /dev/null
+        # Read it back. A PUT that returned 200 and a branch that is actually
+        # protected are different claims.
+        state=$(gh api "repos/$repo/branches/$br" \
+                --jq '"protected=\(.protected) checks=\(.protection.required_status_checks.contexts // [] | join(","))"')
+        echo "  $br: $state"
+    done
+}
+
+if [ -n "$all_repos" ]; then
+    # Every code host the project declares. This is the re-run path — adding the
+    # required check once CI exists — so the config already exists by then.
+    mapfile -t targets < <(
+        { baton config repos 2>/dev/null | jq -r '.[]?'; baton config repo 2>/dev/null; } \
+        | awk 'NF && !seen[$0]++')
+    if [ "${#targets[@]}" -eq 0 ]; then
+        echo "error: --all-repos found nothing in .baton/config.yaml (repo:/repos:)." >&2
+        echo "       During bootstrap the config does not exist yet — use --repo." >&2
+        exit 2
+    fi
+else
+    targets=("${repo:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}")
+fi
+
+for r in "${targets[@]}"; do protect_one "$r"; done
+
+[ "$failed" -eq 0 ] || { echo "something was skipped — see above" >&2; exit 1; }
+echo "Done: ${#targets[@]} repo(s), reviews>=$reviews, enforce_admins=$enforce_admins."
