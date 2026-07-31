@@ -237,17 +237,21 @@ def test_verify_stage_cannot_be_skipped():
     assert c.get(it3.id).stage == "Done"
 
 
-def test_version_matches_pyproject():
-    """`__version__` and `pyproject.toml` drifted apart once already: PyPI served
-    0.3.0 while `baton doctor` printed 0.1.0 to whoever ran it. Two literals, one
-    number, nothing failing — so this is the thing that fails."""
+def test_version_is_derived_not_written_twice():
+    """The number used to live in two literals and they drifted: PyPI served 0.3.0
+    while `baton doctor` printed 0.1.0. Now `pyproject.toml` is the only place a human
+    edits it, so this checks the DERIVATION still lands on it — from a checkout, which
+    is the path every local run and every CI run takes."""
     import tomllib
 
     import baton
     root = Path(__file__).resolve().parents[1]
     declared = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     assert baton.__version__ == declared, \
-        f"__init__.py says {baton.__version__}, pyproject.toml says {declared}"
+        f"baton reports {baton.__version__}, pyproject.toml says {declared}"
+
+    src = (root / "src" / "baton" / "__init__.py").read_text()
+    assert declared not in src, "the version is written in __init__.py again"
 
 
 if __name__ == "__main__":
@@ -257,7 +261,7 @@ if __name__ == "__main__":
     test_labels_add_remove()
     test_verb_stage()
     test_backward_flag()
-    test_version_matches_pyproject()
+    test_version_is_derived_not_written_twice()
     try:
         test_config_load()
     except ImportError:

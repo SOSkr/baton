@@ -11,7 +11,7 @@ import json
 import os
 import sys
 
-from . import __version__
+from . import __version__, version
 from .base import PRIORITIES, BatonError, Item
 from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, credential_sources,
                      find_config, github_token_env, load, load_project,
@@ -336,6 +336,12 @@ def cmd_config(a, b, cfg):
 
 def cmd_doctor(a, b, cfg):
     print(f"baton {__version__}")
+    # A version that is merely printed proves nothing: an editable install whose
+    # metadata went stale reports a number the code no longer is, silently. That is how
+    # `doctor` once told people 0.1.0 while PyPI served 0.3.0.
+    drift = version.mismatch()
+    if drift:
+        print(f"  note: {drift}")
     print(f"config: {cfg.path}")
     print(f"backend: {cfg.backend}   board: {cfg.target}")
     if cfg.repos:
