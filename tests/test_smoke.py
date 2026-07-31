@@ -24,6 +24,7 @@ class FakeAdapter(BoardBase):
         self._groups = {"Review": "unstarted", "Approved": "unstarted",
                         "In Progress": "started", "Done": "completed"}
         self._project: dict | None = {"id": "p1", "identifier": "FAKE", "name": "fake"}
+        self._default = "Review"
 
     def probe(self): return "fake backend, always reachable"
 
@@ -80,9 +81,17 @@ class FakeAdapter(BoardBase):
 
     def stage_groups(self): return {s: self._groups.get(s, "") for s in self.STAGES}
 
+    def default_stage(self): return self._default
+
+    def set_default_stage(self, name): self._default = name
+
     def create_stage(self, name, *, group, color):
         self.STAGES.append(name)
         self._groups[name] = group
+
+    def set_stage_position(self, name, position):
+        self.STAGES = [s for s in self.STAGES if s != name]
+        self.STAGES.insert(position, name)
 
     def delete_stage(self, name):
         self.STAGES = [s for s in self.STAGES if s.lower() != name.lower()]

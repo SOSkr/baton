@@ -256,15 +256,53 @@ class PlaneBoard(BoardBase):
         return {s["name"]: (s.get("group") or "") for s in self._discover_states()}
 
     def create_stage(self, name: str, *, group: str, color: str) -> None:
-        """Plane requires a colour and takes the lifecycle group here; `sequence` is
-        left to the server, which appends."""
+        """Plane assigns its own `sequence` here and ignores one sent with the create —
+        verified against a live instance, where the field is writable in the SDK model
+        either way. Ordering is therefore a separate call; see `set_stage_position`."""
         self._request("POST", f"{self.workspace}/projects/{self._proj()}/states/",
                       {"name": name, "color": color, "group": group})
         self._states = None                  # order and ids changed
 
+    def set_stage_position(self, name: str, position: int) -> None:
+        """Plane orders states by `sequence`, and its own sit at 15000, 25000, ... The
+        step matches so that a column this project does not manage keeps a sane place
+        between the ones it does."""
+        self._patch_state(self._state_by_name(name)["id"],
+                          {"sequence": (position + 1) * 10000})
+        self._states = None
+
+    def default_stage(self) -> str | None:
+        return next((s["name"] for s in self._discover_states() if s.get("default")), None)
+
+    def set_default_stage(self, name: str) -> None:
+        """Two calls, because Plane does NOT clear the old default when a new one is
+        set — it just ends up with two, and then picks. Verified against a live
+        instance; and the order matters: clearing first would leave the project with
+        none if the second call failed.
+
+        Clearing it is also what makes the old default deletable: Plane refuses to
+        remove a state while it holds the flag ("Default state cannot be deleted"),
+        which is why `--prune` could not touch Backlog before this existed.
+        """
+        want = self._state_by_name(name)
+        for state in list(self._discover_states()):
+            if state["id"] == want["id"]:
+                continue
+            if state.get("default"):
+                self._patch_state(state["id"], {"default": False})
+        self._patch_state(want["id"], {"default": True})
+        self._states = None
+
+    def _patch_state(self, state_id: str, body: dict) -> dict:
+        return self._request(
+            "PATCH", f"{self.workspace}/projects/{self._proj()}/states/{state_id}/", body)
+
     def delete_stage(self, name: str) -> None:
+        """The trailing slash is not style: without it Plane answers 301, and urllib
+        does not follow a redirect on DELETE — so the call reports failure while the
+        stage is still there. Every path in this file ends in one for that reason."""
         sid = self._state_by_name(name)["id"]
-        self._request("DELETE", f"{self.workspace}/projects/{self._proj()}/states/{sid}")
+        self._request("DELETE", f"{self.workspace}/projects/{self._proj()}/states/{sid}/")
         self._states = None
 
     def list_stages(self) -> list[str]:

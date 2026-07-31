@@ -79,42 +79,74 @@ class FakeRepo(RepoBase):
 
 
 class FakeBoard(BoardBase):
-    """A board in a dict, shipping Plane's default states when freshly created."""
+    """A board in a dict, shipping Plane's default states when freshly created.
 
-    PLANE_DEFAULTS = {"Backlog": "backlog", "Todo": "unstarted",
-                      "In Progress": "started", "Done": "completed",
-                      "Cancelled": "cancelled"}
+    States carry a `sequence` like the real backend, because ORDER is what several of
+    baton's rules read — and because ordering by sequence is exactly what lets a created
+    stage land BETWEEN two the backend already had.
+    """
+
+    # name -> (group, sequence). The numbers are Plane's own.
+    PLANE_DEFAULTS = {"Backlog": ("backlog", 15000), "Todo": ("unstarted", 25000),
+                      "In Progress": ("started", 35000), "Done": ("completed", 45000),
+                      "Cancelled": ("cancelled", 55000)}
 
     def __init__(self, *, exists=True, states=None):
         self.project = {"id": "p1", "identifier": "APP", "name": "app"} if exists else None
-        self.states = dict(states if states is not None
-                           else (self.PLANE_DEFAULTS if exists else {}))
+        if states is None:
+            self._states = dict(self.PLANE_DEFAULTS) if exists else {}
+        else:   # a test naming groups only: keep the order it wrote them in
+            self._states = {n: (g, (i + 1) * 10000) for i, (n, g) in enumerate(states.items())}
         self.created_states: list[tuple[str, str, str]] = []
         self.deleted: list[str] = []
+        # The backend picks its own default, and it is NOT "the first one": Plane flags
+        # Backlog and then refuses to delete whatever holds the flag.
+        self._default = "Backlog" if (states is None and exists) else None
+
+    @property
+    def states(self) -> dict:
+        """name -> group, in board order (by sequence), like `stage_groups()`."""
+        return {n: g for n, (g, _) in sorted(self._states.items(), key=lambda kv: kv[1][1])}
 
     # bootstrap surface
     def find_project(self): return dict(self.project) if self.project else None
 
     def create_project(self, name):
         self.project = {"id": "p1", "identifier": "APP", "name": name}
-        self.states = dict(self.PLANE_DEFAULTS)     # a fresh project is not empty
+        self._states = dict(self.PLANE_DEFAULTS)    # a fresh project is not empty
+        self._default = "Backlog"
         return dict(self.project)
 
     def stage_groups(self): return dict(self.states)
 
+    def default_stage(self): return self._default
+
+    def set_default_stage(self, name):
+        if name not in self._states:
+            raise BatonError(f"stage {name!r} not found")
+        self._default = name
+
     def create_stage(self, name, *, group, color):
+        """Appends, like a real backend: ordering is a separate act."""
         self.created_states.append((name, group, color))
-        self.states[name] = group
+        seq = max((s for _, s in self._states.values()), default=0) + 10000
+        self._states[name] = (group, seq)
+
+    def set_stage_position(self, name, position):
+        group, _ = self._states[name]
+        self._states[name] = (group, (position + 1) * 10000)
 
     def delete_stage(self, name):
-        if name not in self.states:
+        if name not in self._states:
             raise BatonError(f"stage {name!r} not found")
-        del self.states[name]
+        if name == self._default:               # Plane's own words, and its own refusal
+            raise BatonError("Default state cannot be deleted")
+        del self._states[name]
         self.deleted.append(name)
 
     # lifecycle surface — not what this file tests
     def probe(self): return "fake board"
-    def list_stages(self): return list(self.states)
+    def list_stages(self): return list(self.states)      # board order
     def create(self, title, body, labels, priority=None): raise NotImplementedError
     def get(self, item_id): raise NotImplementedError
     def list(self, **kw): return []
@@ -134,8 +166,25 @@ def test_group_is_inferred_from_position_not_index():
     cfg = Config(backend="plane", board_stages=[
         "Review", "Approved", "In Progress", "Verify", "Deployed", "Cancelled"])
     assert board_role.wanted_stages(cfg) == [
-        ("Review", "unstarted"), ("Approved", "started"), ("In Progress", "started"),
+        ("Review", "unstarted"), ("Approved", "unstarted"), ("In Progress", "started"),
         ("Verify", "started"), ("Deployed", "completed"), ("Cancelled", "cancelled")]
+
+
+def test_unstarted_runs_up_to_the_stage_the_start_verb_points_at():
+    """`Approved` means approved-and-not-begun. Grouping it with `In Progress` shows
+    work as under way that nobody picked up — and which column means "begun" is
+    something baton already knows, from `stages: {start: ...}`."""
+    cfg = Config(backend="plane", stages={"start": "Haciendo"},
+                 board_stages=["Idea", "Lista", "Haciendo", "Hecho"])
+    assert board_role.wanted_stages(cfg) == [
+        ("Idea", "unstarted"), ("Lista", "unstarted"),
+        ("Haciendo", "started"), ("Hecho", "completed")]
+
+    # A board that never names its start column keeps the old shape: only the first
+    # stage is unstarted, because there is nothing better to go on.
+    plain = Config(backend="plane", board_stages=["Uno", "Dos", "Tres"])
+    assert [g for _, g in board_role.wanted_stages(plain)] == [
+        "unstarted", "started", "completed"]
 
 
 def test_explicit_mapping_wins_over_the_guess():
@@ -170,11 +219,46 @@ def test_board_creates_only_the_missing_stages_and_reports_the_extras():
     assert [n for n, _, _ in bd.created_states] == ["Review", "Approved", "Verify", "Deployed"]
     assert rep["stages"]["Deployed"] == "created (completed)"
     assert rep["stages"]["In Progress"] == "existed"
+    # left in the DECLARED order, not appended after the backend's own defaults:
+    # `require_verify` and `flag_backward` read stage ORDER as a rule
+    assert [s for s in bd.list_stages() if s in dict(board_role.wanted_stages(cfg))] == [
+        "Review", "Approved", "In Progress", "Verify", "Deployed", "Cancelled"]
+    assert rep["order"] == "reordered to match board_stages"
+
     # Plane's own defaults that the project does not want are reported, never removed.
     # `Done` is in that list: this project ships to `Deployed`, so Plane's `Done` is a
     # column nothing will ever move to — exactly the kind of thing worth being told.
     assert sorted(rep["extra"]) == ["Backlog", "Done", "Todo"]
     assert bd.deleted == []
+
+
+def test_new_items_land_where_the_config_says_and_the_old_default_becomes_prunable():
+    """The backend picks its own default column (Plane calls it Backlog) and refuses to
+    delete the one holding that flag. Moving it first is what makes the leftovers
+    removable, and what stops `baton new` filing work outside the lifecycle."""
+    bd = FakeBoard(exists=False)
+    cfg = Config(backend="plane", board_stages=["Review", "In Progress", "Deployed"])
+    rep = board_role.ensure(bd, "app", board_role.wanted_stages(cfg),
+                            default=board_role.verb_stage(cfg, "triage"))
+    assert rep["default"] == "set to Review"
+    assert bd.default_stage() == "Review"
+
+    board_role.prune_stages(bd, rep["extra"])       # now that Backlog is not the default
+    assert list(bd.states) == ["Review", "In Progress", "Deployed"]
+
+    # re-running says so instead of writing again
+    again = board_role.ensure(bd, "app", board_role.wanted_stages(cfg),
+                              default=board_role.verb_stage(cfg, "triage"))
+    assert again["default"] == "already"
+
+
+def test_an_existing_stage_in_the_wrong_place_is_moved():
+    """Position is the one property bootstrap rewrites on a stage it did not create: it
+    says nothing about the work in that column, and the gate reads order as a rule."""
+    bd = FakeBoard(states={"Deployed": "completed", "Review": "unstarted"})
+    rep = board_role.ensure(bd, "app", [("Review", "unstarted"), ("Deployed", "completed")])
+    assert list(bd.states) == ["Review", "Deployed"]
+    assert rep["order"] == "reordered to match board_stages"
 
 
 def test_existing_stage_with_the_wrong_group_is_reported_not_silently_changed():
@@ -186,12 +270,15 @@ def test_existing_stage_with_the_wrong_group_is_reported_not_silently_changed():
     assert bd.states["Deployed"] == "started"       # untouched
 
 
-def test_prune_deletes_only_what_was_reported_extra():
+def test_prune_deletes_the_extras_but_not_the_one_holding_the_default():
+    """The backend refuses to delete its default column, and says so. Reported, not
+    raised: pruning three of four and telling you which one stayed beats failing."""
     bd = FakeBoard()
     rep = board_role.ensure(bd, "app", [("In Progress", "started")])
-    board_role.prune_stages(bd, rep["extra"])
-    assert bd.states == {"In Progress": "started"}
-    assert sorted(bd.deleted) == ["Backlog", "Cancelled", "Done", "Todo"]
+    out = board_role.prune_stages(bd, rep["extra"])
+    assert sorted(bd.deleted) == ["Cancelled", "Done", "Todo"]
+    assert "Default state cannot be deleted" in out["Backlog"]
+    assert set(bd.states) == {"In Progress", "Backlog"}
 
 
 # --------------------------------------------------------------- repo side
@@ -310,6 +397,8 @@ def test_bootstrap_on_an_existing_project_creates_nothing():
     assert rep["board"]["created"] is False
     assert rep["created"] == []
     assert bd.created_states == []
+    # this project declares no triage column, so there is nothing to point new items at
+    assert "not in board_stages" in rep["board"]["default"]
 
 
 # --------------------------------------------------------------- the config it writes
@@ -329,6 +418,24 @@ def test_config_merge_keeps_the_keys_a_human_added():
         assert cfg.tokens == {"agent": "MY_KEY"}         # not clobbered
         assert cfg.repo == "acme/app" and cfg.board_stages == ["Review"]
         assert cfg.adapters["board"] == "plane" and cfg.adapters["repo"] == "github"
+
+
+def test_writing_less_than_the_file_already_says_is_not_a_conflict():
+    """`adapters: {board: plane}` over `{board: plane, repo: github}` sets nothing new —
+    it just says less, because defaults are not repeated. Treating that as a change
+    would block the re-run that bootstrap documents as the way to resume."""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / ".baton").mkdir()
+        (root / ".baton" / "config.yaml").write_text(
+            "adapters: {board: plane, repo: github}\n"
+            "target: {base_url: 'https://p', workspace: w, project: APP, owner: acme}\n")
+        target = {"base_url": "https://p", "workspace": "w", "project": "APP"}
+        _, changed, _ = write_config("plane", target, root=root)   # must not raise
+        assert changed == {}
+        cfg = load(root)
+        assert cfg.adapters["repo"] == "github"      # kept
+        assert cfg.target["owner"] == "acme"         # kept
 
 
 def test_config_refuses_to_change_a_value_without_force():

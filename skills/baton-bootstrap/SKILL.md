@@ -105,10 +105,11 @@ it asks is that the repo produce a check with a **stable** name.
 
 ## 5. Stages whose meaning is not obvious
 
-`--stage` takes names and infers each one's lifecycle group: first is unstarted, the
-last non-cancelled one is what "done" means, a name like Cancelled/Rechazado is a
-cancellation. When that guess would be wrong — a board in another language, two closing
-columns — write the mapping in `.baton/config.yaml` instead and re-run:
+`--stage` takes names and infers each one's lifecycle group: everything before the
+stage `stages.start` points at is unstarted, the last non-cancelled one is what "done"
+means, and a name like Cancelled/Rechazado is a cancellation. When that guess would be
+wrong — a board in another language, two closing columns — write the mapping in
+`.baton/config.yaml` instead and re-run:
 
 ```yaml
 board_stages: {Pendiente: unstarted, Haciendo: started,

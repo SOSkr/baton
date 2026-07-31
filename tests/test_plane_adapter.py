@@ -22,19 +22,23 @@ class FakePlane:
     PlaneBoard._request builds paths: '<workspace>/projects/...'."""
 
     def __init__(self):
+        # Sequences spaced the way Plane spaces its own (15000, 25000, ...): the gaps
+        # are what let a created stage land BETWEEN two existing ones.
         self.states = [
-            {"id": "s-review", "name": "Review", "group": "backlog", "sequence": 1},
-            {"id": "s-approved", "name": "Approved", "group": "unstarted", "sequence": 2},
-            {"id": "s-done", "name": "Done", "group": "completed", "sequence": 3},
-            {"id": "s-cancelled", "name": "Cancelled", "group": "cancelled", "sequence": 4},
+            {"id": "s-review", "name": "Review", "group": "backlog", "sequence": 15000},
+            {"id": "s-approved", "name": "Approved", "group": "unstarted", "sequence": 25000},
+            {"id": "s-done", "name": "Done", "group": "completed", "sequence": 45000},
+            {"id": "s-cancelled", "name": "Cancelled", "group": "cancelled", "sequence": 55000},
         ]
         self.labels = []  # [{id, name}]
         self.items = {}   # uuid -> issue dict
         self.modules = []          # [{id, name, target_date, total_issues, completed_issues}]
         self.module_items = {}     # module id -> [item uuid]
         self._n = 0
+        self.paths: list[str] = []
 
     def request(self, method, path, body=None, params=None):
+        self.paths.append(path)
         parts = path.strip("/").split("/")
         ws, rest = parts[0], parts[1:]
         assert ws == "acme"
@@ -47,6 +51,26 @@ class FakePlane:
 
         if rest == ["states"] and method == "GET":
             return {"results": self.states}
+
+        if rest == ["states"] and method == "POST":
+            # Plane assigns its OWN sequence here and ignores whatever was sent —
+            # appending after every state the project already had. The adapter is
+            # expected to notice and fix it with a second call.
+            self._n += 1
+            row = {"id": f"s-new{self._n}", "name": body["name"], "group": body["group"],
+                   "sequence": max(s["sequence"] for s in self.states) + 10}
+            self.states.append(row)
+            return row
+
+        if rest[:1] == ["states"] and len(rest) == 2 and method == "PATCH":
+            row = next(s for s in self.states if s["id"] == rest[1])
+            row.update(body)
+            self.states.sort(key=lambda s: s["sequence"])
+            return row
+
+        if rest[:1] == ["states"] and len(rest) == 2 and method == "DELETE":
+            self.states = [s for s in self.states if s["id"] != rest[1]]
+            return {}
 
         if rest == ["labels"]:
             if method == "GET":
@@ -248,6 +272,42 @@ def test_epics_are_native_modules_and_are_never_auto_created():
     fake.modules[0].update(total_issues=12, completed_issues=7)
     got = ad.list_groups()[0]
     assert (got.total, got.done) == (12, 7)   # progress comes from the board, not us
+
+
+def test_a_created_stage_is_appended_and_then_moved_where_the_board_wants_it():
+    """Plane ignores `sequence` on create — it appends — but takes it on update. Order
+    is not decoration here: `require_verify` and `flag_backward` read the board's stage
+    order to tell a step forward from a step back, so a stage left at the end inverts
+    them."""
+    ad, fake = make_adapter()
+    ad.create_stage("Verify", group="started", color="#3b82f6")
+    assert [s["name"] for s in fake.states][-1] == "Verify"      # appended by the backend
+
+    ad.set_stage_position("Verify", 2)
+    assert [s["name"] for s in fake.states] == [
+        "Review", "Approved", "Verify", "Done", "Cancelled"]
+    assert next(s for s in fake.states if s["name"] == "Verify")["sequence"] == 30000
+
+
+def test_setting_the_default_stage_clears_the_previous_one():
+    """Plane does NOT clear the old default when a new one is set — it ends up with two
+    and then picks. And it refuses to delete whichever holds the flag, which is why
+    `--prune` could not remove its own leftovers until this existed."""
+    ad, fake = make_adapter()
+    fake.states[0]["default"] = True                            # Review
+    ad.set_default_stage("Approved")
+    assert [s["name"] for s in fake.states if s.get("default")] == ["Approved"]
+    assert ad.default_stage() == "Approved"
+
+
+def test_delete_stage_resolves_the_name_and_keeps_the_trailing_slash():
+    """The slash is load-bearing: without it Plane answers 301 and urllib does not
+    follow a redirect on DELETE, so `--prune` reported failure while every stage stayed
+    exactly where it was. Found by running it against a real board."""
+    ad, fake = make_adapter()
+    ad.delete_stage("done")                       # case-insensitive, like every lookup
+    assert [s["name"] for s in fake.states] == ["Review", "Approved", "Cancelled"]
+    assert fake.paths[-1].endswith("/"), fake.paths[-1]
 
 
 if __name__ == "__main__":

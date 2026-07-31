@@ -88,5 +88,5 @@ callers. The board does not enforce this — the order in the body and the test 
 do, so read the body before you pick a box.
 
 ## Notes
-- Keep the item's stage current as work progresses (`baton list --stage "In Progress"`).
+- Keep the item's stage current as work progresses (`baton list --stage @start`).
 - **State = board stage, not labels.**

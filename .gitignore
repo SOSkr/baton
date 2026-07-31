@@ -1,7 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
-.baton/            # el config de dogfooding es local: lleva la URL del Plane
+# el config de dogfooding es local: lleva la URL del Plane y el slug del workspace
+.baton/
 dist/
 *.egg-info/
 .scratch/

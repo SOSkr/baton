@@ -157,9 +157,12 @@ Which is why creating a stage takes the group explicitly:
 ad.create_stage("Deployed", group="completed", color="#16a34a")
 ```
 
-Where the group comes from is the role layer's business, not the provider's: a plain
-`board_stages` list is inferred by position (first is unstarted, the last non-cancelled
-one is what done means), and a mapping in the config overrides that guess. See
+Where the group comes from is the role layer's business, not the provider's. A plain
+`board_stages` list is inferred: everything before the stage `stages.start` points at is
+`unstarted`, the last non-cancelled one is what done means, and a name like Cancelled is
+a cancellation. That middle rule uses baton's own vocabulary rather than a new guess —
+`Approved` means approved-and-not-begun, and filing it under `started` would show work as
+under way that nobody has picked up. A mapping in the config overrides all of it. See
 `wanted_stages` in [`board/__init__.py`](../../src/baton/adapters/board/__init__.py).
 
 Two rules the role layer holds, so every backend inherits them:

@@ -112,6 +112,25 @@ def test_no_doc_is_orphaned():
                          + "\nLink them, or delete them.")
 
 
+def test_gitignore_patterns_carry_no_trailing_comment():
+    """`#` starts a comment in .gitignore ONLY at the start of a line. `.baton/  # why`
+    is a pattern that matches a directory with spaces and a hash in its name — that is,
+    nothing. It shipped that way, and it was invisible here because a global gitignore
+    happened to cover the same path; on CI the file would have been committable.
+    """
+    bad = [ln for ln in (ROOT / ".gitignore").read_text().splitlines()
+           if ln.strip() and not ln.lstrip().startswith("#") and "#" in ln]
+    assert not bad, ("patterns with an inline comment ignore nothing:\n  "
+                     + "\n  ".join(bad) + "\nPut the comment on its own line.")
+
+
+def test_the_dogfooding_config_is_ignored():
+    """baton administers baton, and its own .baton/config.yaml carries the Plane URL of
+    whoever runs it. This repo is public."""
+    lines = {ln.strip() for ln in (ROOT / ".gitignore").read_text().splitlines()}
+    assert ".baton/" in lines or ".baton/config.yaml" in lines
+
+
 if __name__ == "__main__":
     test_the_example_loads_as_a_real_config()
     test_the_example_invents_no_keys()
@@ -119,4 +138,6 @@ if __name__ == "__main__":
     test_readme_yaml_blocks_use_real_keys()
     test_every_relative_link_resolves()
     test_no_doc_is_orphaned()
+    test_gitignore_patterns_carry_no_trailing_comment()
+    test_the_dogfooding_config_is_ignored()
     print("ok — the docs match the code")
