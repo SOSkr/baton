@@ -255,16 +255,36 @@ class PlaneBoard(BoardBase):
     def stage_groups(self) -> dict[str, str]:
         return {s["name"]: (s.get("group") or "") for s in self._discover_states()}
 
-    def create_stage(self, name: str, *, group: str, color: str) -> None:
-        """Plane requires a colour and takes the lifecycle group here; `sequence` is
-        left to the server, which appends."""
-        self._request("POST", f"{self.workspace}/projects/{self._proj()}/states/",
-                      {"name": name, "color": color, "group": group})
+    def create_stage(self, name: str, *, group: str, color: str,
+                     position: int | None = None) -> None:
+        """Plane orders states by `sequence` and, left alone, appends new ones after
+        everything it shipped with — which would put Review and Approved AFTER
+        Cancelled. Since baton reads stage ORDER as a rule (the verify gate, the
+        backward-move flag), the position is sent explicitly.
+
+        Two calls, and not by choice: Plane **ignores `sequence` on create** — it assigns
+        its own, appending after everything the project already had — but accepts it on
+        update. Verified against a live instance, which is the only way to find this:
+        the field is writable in the SDK model either way.
+
+        The step matches Plane's own (its defaults sit at 15000, 25000, ...), so a board
+        that mixes created and pre-existing states interleaves instead of piling up at
+        the end.
+        """
+        row = self._request("POST", f"{self.workspace}/projects/{self._proj()}/states/",
+                            {"name": name, "color": color, "group": group})
+        if position is not None and row.get("id"):
+            self._request("PATCH",
+                          f"{self.workspace}/projects/{self._proj()}/states/{row['id']}/",
+                          {"sequence": (position + 1) * 10000})
         self._states = None                  # order and ids changed
 
     def delete_stage(self, name: str) -> None:
+        """The trailing slash is not style: without it Plane answers 301, and urllib
+        does not follow a redirect on DELETE — so the call reports failure while the
+        stage is still there. Every path in this file ends in one for that reason."""
         sid = self._state_by_name(name)["id"]
-        self._request("DELETE", f"{self.workspace}/projects/{self._proj()}/states/{sid}")
+        self._request("DELETE", f"{self.workspace}/projects/{self._proj()}/states/{sid}/")
         self._states = None
 
     def list_stages(self) -> list[str]:

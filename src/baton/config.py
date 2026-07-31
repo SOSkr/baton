@@ -269,6 +269,14 @@ def write_config(board: str, target: dict, *, repo: str | None = None,
         if val:
             new[key] = val
 
+    # A dict-valued key is MERGED, not replaced, before deciding anything changed:
+    # writing `{board: plane}` over `{board: plane, repo: github}` sets no new value, it
+    # just says less. Comparing raw dicts would call that a conflict and stop a re-run
+    # that was meant to resume — and re-running is the documented way to recover from a
+    # half-failed bootstrap.
+    for key, val in list(new.items()):
+        if isinstance(val, dict) and isinstance(existing.get(key), dict):
+            new[key] = {**existing[key], **val}
     changed = {k: (existing[k], v) for k, v in new.items()
                if k in existing and existing[k] != v}
     if changed and not force:

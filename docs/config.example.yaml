@@ -39,10 +39,10 @@ visibility: private    # `baton bootstrap` only: what a repo it CREATES is creat
 
 board_stages:          # `baton bootstrap` only: the stages the board must have, in
   - Review             # board order. baton derives open/closed from each stage's
-  - Approved           # lifecycle group, which is inferred here: first is unstarted,
-  - In Progress        # the last non-cancelled one is what "done" means, and a name
-  - Verify             # like Cancelled is a cancellation.
-  - Deployed
+  - Approved           # lifecycle group, inferred here: everything before the stage
+  - In Progress        # `stages.start` points at is unstarted, the last non-cancelled
+  - Verify             # one is what "done" means, and a name like Cancelled is a
+  - Deployed           # cancellation.
   - Cancelled
 # When that guess would be wrong — a board in another language, two closing columns —
 # write it as a mapping instead and be explicit (groups: backlog, unstarted, started,

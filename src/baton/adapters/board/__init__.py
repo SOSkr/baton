@@ -96,24 +96,38 @@ _CANCELLED = {"cancelled", "canceled", "cancelado", "cancelada", "rejected",
               "rechazado", "rechazada", "descartado", "descartada", "won't do", "wontfix"}
 
 
-def _infer_groups(names: list[str]) -> list[str]:
-    """Guess each stage's lifecycle group from its position and name.
+def _infer_groups(names: list[str], start_stage: str | None = None) -> list[str]:
+    """Guess each stage's lifecycle group from its position, its name, and the stage
+    the `start` verb points at.
 
-    Position, not just index: the LAST stage that is not a cancellation is the one that
-    means done — `[..., Deployed, Cancelled]` is the common shape, and reading "last" as
-    literally-last would file Deployed under `started` and Cancelled as the only closed
-    stage.
+    Three rules, in order:
+
+    - a name that means dropped (Cancelled, Rechazado, ...) is `cancelled`;
+    - the LAST stage that is not a cancellation is what "done" means — `[..., Deployed,
+      Cancelled]` is the common shape, and reading "last" as literally-last would file
+      Deployed under `started` and leave Cancelled as the only closed stage;
+    - everything BEFORE the stage that `start` moves to is `unstarted`; from there on it
+      is `started`. This is baton's own vocabulary, not a new guess: `Approved` means
+      approved-and-not-begun, and grouping it with `In Progress` would show work as
+      under way that nobody has picked up. A project whose start column is named
+      something else says so in `stages: {start: <name>}`.
     """
-    cancelled = {i for i, n in enumerate(names) if n.strip().lower() in _CANCELLED}
+    lowered = [n.strip().lower() for n in names]
+    cancelled = {i for i, n in enumerate(lowered) if n in _CANCELLED}
     rest = [i for i in range(len(names)) if i not in cancelled]
-    first, done = (rest[0], rest[-1]) if rest else (None, None)
+    done = rest[-1] if rest else None
+    try:
+        started_from = lowered.index((start_stage or "").strip().lower())
+    except ValueError:
+        started_from = rest[1] if len(rest) > 1 else len(names)   # no start stage named:
+                                                                  # only the first is unstarted
     out = []
     for i in range(len(names)):
         if i in cancelled:
             out.append("cancelled")
         elif i == done:
             out.append("completed")
-        elif i == first:
+        elif i < started_from:
             out.append("unstarted")
         else:
             out.append("started")
@@ -141,7 +155,7 @@ def wanted_stages(cfg: Config) -> list[tuple[str, str]]:
         if group and group not in GROUPS:
             raise BatonError(f"board_stages: {name!r} has group {group!r}; "
                              f"must be one of {', '.join(GROUPS)}")
-    guessed = _infer_groups([n for n, _ in pairs])
+    guessed = _infer_groups([n for n, _ in pairs], verb_stage(cfg, "start"))
     return [(n, g or guessed[i]) for i, (n, g) in enumerate(pairs)]
 
 
@@ -162,10 +176,10 @@ def ensure(ad: BoardBase, project_name: str, stages: list[tuple[str, str]]) -> d
     by_lower = {name.lower(): (name, group) for name, group in have.items()}
     report: dict = {"project": found, "created": created, "stages": {}, "extra": []}
 
-    for name, group in stages:
+    for position, (name, group) in enumerate(stages):
         hit = by_lower.get(name.lower())
         if hit is None:
-            ad.create_stage(name, group=group, color=_COLOR[group])
+            ad.create_stage(name, group=group, color=_COLOR[group], position=position)
             report["stages"][name] = f"created ({group})"
         elif hit[1] and hit[1] != group:
             # Not fixed here: changing a stage's group changes what every item already
@@ -176,6 +190,14 @@ def ensure(ad: BoardBase, project_name: str, stages: list[tuple[str, str]]) -> d
 
     wanted = {n.lower() for n, _ in stages}
     report["extra"] = [n for n in have if n.lower() not in wanted]
+
+    # ORDER is a rule, not decoration: `require_verify` and `flag_backward` read the
+    # board's own stage order to tell a step forward from a step back. A pre-existing
+    # stage keeps whatever position the backend gave it, and nothing here reorders it —
+    # so when the result does not match what the config declared, say so.
+    final = [s for s in ad.list_stages() if s.lower() in wanted]
+    if final != [n for n, _ in stages]:
+        report["order"] = final
     return report
 
 

@@ -99,8 +99,15 @@ class BoardBase(ABC):
         """
 
     @abstractmethod
-    def create_stage(self, name: str, *, group: str, color: str) -> None:
-        """Add a stage. `group` is the backend's lifecycle group (see `stage_groups`)."""
+    def create_stage(self, name: str, *, group: str, color: str,
+                     position: int | None = None) -> None:
+        """Add a stage. `group` is the backend's lifecycle group (see `stage_groups`).
+
+        `position` is its 0-based place in the board order, and it is not cosmetic:
+        baton reads `list_stages()` ORDER to decide whether a move goes forward or
+        backward and whether it skipped verification. A backend that appends every new
+        stage at the end would silently invert those rules.
+        """
 
     @abstractmethod
     def delete_stage(self, name: str) -> None:
