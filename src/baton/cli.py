@@ -13,8 +13,9 @@ import sys
 
 from . import __version__
 from .base import PRIORITIES, BatonError, Item
-from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, find_config,
-                     github_token_env, load, load_project, write_config)
+from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, credential_sources,
+                     find_config, github_token_env, load, load_project,
+                     shared_credential_roles, write_config)
 from .core import DEFAULT_STAGES, Baton
 
 
@@ -248,6 +249,21 @@ def cmd_bootstrap(a, b, cfg):
     return rc
 
 
+def _missing_credential(var: str) -> None:
+    """Say where the credential IS when the shell does not have it.
+
+    Only the location and a command to export it — baton never reads the value itself.
+    The point is that the credential entering the session stays a thing the user did on
+    purpose, not something a CLI picked up from another program's config.
+    """
+    for name, path, keys in credential_sources(var):
+        accessor = "".join(f"[{k!r}]" for k in keys)
+        print(f"  ${var} is defined in the MCP server {name!r} ({path}). To reuse it:")
+        print(f"    export {var}=$(python3 -c \"import json,os;"
+              f"print(json.load(open(os.path.expanduser('{path}')))"
+              f"{accessor})\")")
+
+
 def _probe(label: str, build) -> bool:
     """Run one real read-only call and report it. Never raises: doctor's job is to
     check EVERYTHING and then tell you what is broken — one that stops at the first
@@ -322,6 +338,14 @@ def cmd_doctor(a, b, cfg):
     if cfg.migrate_from:
         print(f"migration source: {cfg.migrate_from}")
 
+    both = shared_credential_roles(cfg)
+    if both:
+        # Reported for the same reason an agent token holding admin is reported: the
+        # split is the whole security story, and one that is not splitting anything
+        # should say so instead of being assumed.
+        print(f"note: {' and '.join(both)} both read ${cfg.token_env(both[0])} — "
+              f"the credential split is decorative on this board")
+
     ok = True
     saved = os.environ.get("GH_TOKEN")   # probing as admin must not leak into later ops
     try:
@@ -329,6 +353,7 @@ def cmd_doctor(a, b, cfg):
             var = cfg.token_env(role)
             if not os.environ.get(var):
                 print(f"token[{role}] ${var}: NOT set — skipped")
+                _missing_credential(var)
                 continue
             print(f"token[{role}] ${var}:")
             ok &= _probe(f"board ({cfg.backend})", lambda r=role: Baton(cfg, r).board)
@@ -378,12 +403,15 @@ def cmd_doctor(a, b, cfg):
 
     # Capabilities are CHECKED, not declared — a backend's edition or version can
     # turn a feature off, and finding that out here beats finding it out mid-verb.
-    if "groups" in b.board.capabilities():
-        try:
+    # Inside the try because reaching the board can fail HERE too (no credential at
+    # all): doctor's whole job is to check everything and then say what is broken, so
+    # it must not die halfway through its own report.
+    try:
+        if "groups" in b.board.capabilities():
             print(f"epics (native groups): {len(b.board.list_groups())} on the board")
-        except BatonError as e:
-            print(f"epics (native groups): FAILED — {e}")
-            ok = False
+    except BatonError as e:
+        print(f"epics (native groups): FAILED — {e}")
+        ok = False
     if cfg.stages:
         print(f"verb aliases: {cfg.stages}")
     if cfg.memory:

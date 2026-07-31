@@ -74,7 +74,9 @@ repos:                 # a board project can span several git repos; the `area:`
 tokens:                # the ENV VAR NAME to read per credential role. The agent writes
   agent: PLANE_API_KEY # code and items; the admin creates and merges. See the README's
   admin: PLANE_ADMIN_API_KEY   # § Credential roles. GitHub always reads GH_TOKEN /
-                               # GH_ADMIN_TOKEN, whichever provider holds the board
+                               # GH_ADMIN_TOKEN, whichever provider holds the board.
+                               # One key for this board? Point both roles at it —
+                               # `doctor` then reports the split as decorative.
 
 # --- optional wiring ----------------------------------------------------------------
 
