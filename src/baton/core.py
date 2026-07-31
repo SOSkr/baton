@@ -57,6 +57,15 @@ class Baton:
     def stage_for(self, verb: str) -> str:
         return _board.verb_stage(self.cfg, verb)
 
+    def stage(self, value: str | None) -> str | None:
+        """`@approve` -> this project's name for that stage; anything else, literal.
+        Every verb that takes a stage goes through here, so a skill never has to know
+        what the columns are called on the board it happens to be pointed at."""
+        return None if value is None else _board.resolve_stage(self.cfg, value)
+
+    def stages_map(self) -> dict[str, str]:
+        return _board.stage_map(self.cfg)
+
     def advance(self, item_id: str, to: str) -> str:
         """Move an item, with both stage rules applied: the verify gate refuses a
         jump over verification, and a backward move gets flagged for review. Returns
@@ -163,7 +172,8 @@ class Baton:
         # board created by the agent token is a board the agent can reconfigure.
         bd = _board.get(cfg, "admin")
         board_report = _board.ensure(bd, project_name or cfg.target.get("project") or "",
-                                     _board.wanted_stages(cfg))
+                                     _board.wanted_stages(cfg),
+                                     default=_board.verb_stage(cfg, "triage"))
         if board_report["created"]:
             ident = board_report["project"].get("identifier")
             report["created"].append(f"board project {ident}")

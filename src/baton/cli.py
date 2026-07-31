@@ -37,9 +37,10 @@ def _emit(obj, as_json: bool):
 
 def cmd_new(a, b, cfg):
     it = b.board.create(a.title, a.body or "", a.label or [], priority=a.priority)
-    if a.stage:
-        b.board.set_stage(it.id, a.stage)
-        it.stage = a.stage
+    stage = b.stage(a.stage)
+    if stage:
+        b.board.set_stage(it.id, stage)
+        it.stage = stage
     _emit(it, a.json)
 
 
@@ -63,7 +64,7 @@ def cmd_show(a, b, cfg):
 
 
 def cmd_list(a, b, cfg):
-    _emit(b.board.list(stage=a.stage, label=a.label, state=a.state, group=a.group), a.json)
+    _emit(b.board.list(stage=b.stage(a.stage), label=a.label, state=a.state, group=a.group), a.json)
 
 
 def cmd_groups(a, b, cfg):
@@ -92,7 +93,7 @@ def cmd_stages(a, b, cfg):
 
 
 def cmd_advance(a, b, cfg):
-    _emit(f"#{a.id} → {b.advance(a.id, a.to)}", a.json)
+    _emit(f"#{a.id} → {b.advance(a.id, b.stage(a.to))}", a.json)
 
 
 def _cmd_verb(verb: str):
@@ -187,6 +188,12 @@ def _print_bootstrap(rep: dict) -> int:
     bd = rep.get("board", {})
     print(f"board {bd.get('identifier') or bd.get('project', {}).get('identifier')}: "
           f"{'created' if bd.get('created') else bd.get('state', 'existed')}")
+    if bd.get("default"):
+        print(f"  new items land in: {bd['default']}")
+        bad |= "NOT set" in bd["default"]
+    if bd.get("order"):
+        print(f"  board order: {bd['order']}")
+        bad |= str(bd["order"]).startswith("still ")
     for name, state in (bd.get("stages") or {}).items():
         print(f"  stage {name}: {state}")
         bad |= "config wants" in state
@@ -412,6 +419,26 @@ def cmd_doctor(a, b, cfg):
     except BatonError as e:
         print(f"epics (native groups): FAILED — {e}")
         ok = False
+    # The lifecycle vocabulary, checked against the board rather than trusted. An alias
+    # naming a column that is not there does not fail loudly: `require_verify` swallows
+    # the lookup and the gate simply stops gating — which is exactly how a project ends
+    # up believing it verifies and never does.
+    try:
+        on_board = {st.lower() for st in b.board.list_stages()}
+        for verb, name in b.stages_map().items():
+            if name.lower() not in on_board:
+                print(f"stage @{verb}: {name!r} is NOT on the board"
+                      + ("  ← the verify gate is off while this is true"
+                         if verb == "verify" else ""))
+                ok = False
+        landing = b.board.default_stage()
+        if landing and landing.lower() != b.stage("@triage").lower():
+            print(f"new items land in {landing!r}, but @triage is "
+                  f"{b.stage('@triage')!r} — run `baton bootstrap` to fix it")
+            ok = False
+    except BatonError:
+        pass                      # unreachable board: already reported above
+
     if cfg.stages:
         print(f"verb aliases: {cfg.stages}")
     if cfg.memory:
@@ -485,7 +512,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--label", action="append")
     s.add_argument("--priority", choices=list(PRIORITIES),
                    help="the board's NATIVE priority field — not a priority: label")
-    s.add_argument("--stage", help="initial stage (else backend default)")
+    s.add_argument("--stage", help="initial stage: a column name, or baton's own name "
+                                   "for it (@triage, @approve, @start, @verify, @ship, "
+                                   "@cancel) so the command works on any board")
     s.set_defaults(fn=cmd_new)
 
     s = sub.add_parser("show", help="show an item")
@@ -495,7 +524,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("list", help="list items")
-    s.add_argument("--stage")
+    s.add_argument("--stage", help="column name, or @verb (e.g. --stage @approve)")
     s.add_argument("--label")
     s.add_argument("--group", metavar="EPIC", help="only items in this epic")
     s.add_argument("--state", default="open", choices=["open", "closed", "all"])
@@ -512,9 +541,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--to", required=True, metavar="EPIC")
     s.set_defaults(fn=cmd_group)
 
-    s = sub.add_parser("advance", help="move item to a stage (by name)")
+    s = sub.add_parser("advance", help="move item to a stage (by name, or @verb)")
     s.add_argument("id")
-    s.add_argument("--to", required=True)
+    s.add_argument("--to", required=True,
+                   help="column name, or baton's name for it (@approve, @start, ...)")
     s.set_defaults(fn=cmd_advance)
 
     for verb in ("approve", "start", "verify", "ship"):

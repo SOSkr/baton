@@ -52,7 +52,7 @@ Config: `.baton/config.yaml` (backend, target, label axes, stage aliases).
      --body "$(cat <<'EOF'
    ...body...
    EOF
-   )" --stage "$(baton stages | head -1)"
+   )" --stage @triage
    ```
    **`--priority`, never a `priority:` label.** It writes the board's own field, the
    one the board sorts and filters by; a label the board cannot sort by is a note to

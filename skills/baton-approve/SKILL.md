@@ -34,5 +34,5 @@ Approve a reviewed item — moves it to the "approve" stage (config alias, defau
 
 ## Notes
 - **State = board stage, not labels.** The approved backlog = items in the approved
-  stage, ordered by priority label (`baton list --stage Approved`).
+  stage, ordered by priority label (`baton list --stage @approve`).
 - Implementation starts with `baton-start`.

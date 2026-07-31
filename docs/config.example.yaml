@@ -51,11 +51,13 @@ board_stages:          # `baton bootstrap` only: the stages the board must have,
 #   board_stages: {Pendiente: unstarted, Haciendo: started,
 #                  Desplegado: completed, Cancelado: cancelled}
 
-stages:                # verb -> stage NAME, when your columns are not baton's defaults
-  approve: Approved
-  start: In Progress
-  verify: Verify       # declaring this ALSO gates it: a move that jumps OVER this
-  ship: Deployed       # stage is refused. See the baton-verify skill
+stages:                # baton's lifecycle vocabulary -> what THIS board calls it.
+  triage: Review       # where a new item lands, and the board's default stage
+  approve: Approved    # Every key is optional; these are the defaults. Rename a column
+  start: In Progress   # here and every command and skill follows, because they ask for
+  verify: Verify       # `@approve`, never for a literal name. Declaring `verify` ALSO
+  ship: Deployed       # gates it: a move that jumps OVER that stage is refused.
+  cancel: Cancelled    # `baton doctor` checks each of these exists on the board
 
 labels:                # the label AXES this project uses. Labels are axes, never state
   axes: [type, area]   # — state is the board stage

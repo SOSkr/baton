@@ -99,6 +99,9 @@ class FakeBoard(BoardBase):
             self._states = {n: (g, (i + 1) * 10000) for i, (n, g) in enumerate(states.items())}
         self.created_states: list[tuple[str, str, str]] = []
         self.deleted: list[str] = []
+        # The backend picks its own default, and it is NOT "the first one": Plane flags
+        # Backlog and then refuses to delete whatever holds the flag.
+        self._default = "Backlog" if (states is None and exists) else None
 
     @property
     def states(self) -> dict:
@@ -111,19 +114,33 @@ class FakeBoard(BoardBase):
     def create_project(self, name):
         self.project = {"id": "p1", "identifier": "APP", "name": name}
         self._states = dict(self.PLANE_DEFAULTS)    # a fresh project is not empty
+        self._default = "Backlog"
         return dict(self.project)
 
     def stage_groups(self): return dict(self.states)
 
-    def create_stage(self, name, *, group, color, position=None):
+    def default_stage(self): return self._default
+
+    def set_default_stage(self, name):
+        if name not in self._states:
+            raise BatonError(f"stage {name!r} not found")
+        self._default = name
+
+    def create_stage(self, name, *, group, color):
+        """Appends, like a real backend: ordering is a separate act."""
         self.created_states.append((name, group, color))
-        seq = (position + 1) * 10000 if position is not None else (
-            max((s for _, s in self._states.values()), default=0) + 10000)
+        seq = max((s for _, s in self._states.values()), default=0) + 10000
         self._states[name] = (group, seq)
+
+    def set_stage_position(self, name, position):
+        group, _ = self._states[name]
+        self._states[name] = (group, (position + 1) * 10000)
 
     def delete_stage(self, name):
         if name not in self._states:
             raise BatonError(f"stage {name!r} not found")
+        if name == self._default:               # Plane's own words, and its own refusal
+            raise BatonError("Default state cannot be deleted")
         del self._states[name]
         self.deleted.append(name)
 
@@ -202,11 +219,11 @@ def test_board_creates_only_the_missing_stages_and_reports_the_extras():
     assert [n for n, _, _ in bd.created_states] == ["Review", "Approved", "Verify", "Deployed"]
     assert rep["stages"]["Deployed"] == "created (completed)"
     assert rep["stages"]["In Progress"] == "existed"
-    # created in the declared order, not appended after the backend's own defaults:
+    # left in the DECLARED order, not appended after the backend's own defaults:
     # `require_verify` and `flag_backward` read stage ORDER as a rule
     assert [s for s in bd.list_stages() if s in dict(board_role.wanted_stages(cfg))] == [
         "Review", "Approved", "In Progress", "Verify", "Deployed", "Cancelled"]
-    assert "order" not in rep
+    assert rep["order"] == "reordered to match board_stages"
 
     # Plane's own defaults that the project does not want are reported, never removed.
     # `Done` is in that list: this project ships to `Deployed`, so Plane's `Done` is a
@@ -215,13 +232,33 @@ def test_board_creates_only_the_missing_stages_and_reports_the_extras():
     assert bd.deleted == []
 
 
-def test_a_board_whose_final_order_disagrees_with_the_config_says_so():
-    """A stage that already existed keeps the position the backend gave it, and nothing
-    here reorders it. Silence would leave the verify gate reading a board whose order is
-    not the one the project declared."""
+def test_new_items_land_where_the_config_says_and_the_old_default_becomes_prunable():
+    """The backend picks its own default column (Plane calls it Backlog) and refuses to
+    delete the one holding that flag. Moving it first is what makes the leftovers
+    removable, and what stops `baton new` filing work outside the lifecycle."""
+    bd = FakeBoard(exists=False)
+    cfg = Config(backend="plane", board_stages=["Review", "In Progress", "Deployed"])
+    rep = board_role.ensure(bd, "app", board_role.wanted_stages(cfg),
+                            default=board_role.verb_stage(cfg, "triage"))
+    assert rep["default"] == "set to Review"
+    assert bd.default_stage() == "Review"
+
+    board_role.prune_stages(bd, rep["extra"])       # now that Backlog is not the default
+    assert list(bd.states) == ["Review", "In Progress", "Deployed"]
+
+    # re-running says so instead of writing again
+    again = board_role.ensure(bd, "app", board_role.wanted_stages(cfg),
+                              default=board_role.verb_stage(cfg, "triage"))
+    assert again["default"] == "already"
+
+
+def test_an_existing_stage_in_the_wrong_place_is_moved():
+    """Position is the one property bootstrap rewrites on a stage it did not create: it
+    says nothing about the work in that column, and the gate reads order as a rule."""
     bd = FakeBoard(states={"Deployed": "completed", "Review": "unstarted"})
     rep = board_role.ensure(bd, "app", [("Review", "unstarted"), ("Deployed", "completed")])
-    assert rep["order"] == ["Deployed", "Review"]
+    assert list(bd.states) == ["Review", "Deployed"]
+    assert rep["order"] == "reordered to match board_stages"
 
 
 def test_existing_stage_with_the_wrong_group_is_reported_not_silently_changed():
@@ -233,12 +270,15 @@ def test_existing_stage_with_the_wrong_group_is_reported_not_silently_changed():
     assert bd.states["Deployed"] == "started"       # untouched
 
 
-def test_prune_deletes_only_what_was_reported_extra():
+def test_prune_deletes_the_extras_but_not_the_one_holding_the_default():
+    """The backend refuses to delete its default column, and says so. Reported, not
+    raised: pruning three of four and telling you which one stayed beats failing."""
     bd = FakeBoard()
     rep = board_role.ensure(bd, "app", [("In Progress", "started")])
-    board_role.prune_stages(bd, rep["extra"])
-    assert bd.states == {"In Progress": "started"}
-    assert sorted(bd.deleted) == ["Backlog", "Cancelled", "Done", "Todo"]
+    out = board_role.prune_stages(bd, rep["extra"])
+    assert sorted(bd.deleted) == ["Cancelled", "Done", "Todo"]
+    assert "Default state cannot be deleted" in out["Backlog"]
+    assert set(bd.states) == {"In Progress", "Backlog"}
 
 
 # --------------------------------------------------------------- repo side
@@ -357,6 +397,8 @@ def test_bootstrap_on_an_existing_project_creates_nothing():
     assert rep["board"]["created"] is False
     assert rep["created"] == []
     assert bd.created_states == []
+    # this project declares no triage column, so there is nothing to point new items at
+    assert "not in board_stages" in rep["board"]["default"]
 
 
 # --------------------------------------------------------------- the config it writes

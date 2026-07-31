@@ -274,19 +274,30 @@ def test_epics_are_native_modules_and_are_never_auto_created():
     assert (got.total, got.done) == (12, 7)   # progress comes from the board, not us
 
 
-def test_a_created_stage_is_put_where_the_board_wants_it():
-    """Plane ignores `sequence` on create — it appends. Order is not decoration here:
-    `require_verify` and `flag_backward` read the board's stage order to tell a step
-    forward from a step back, so a stage that lands at the end inverts them."""
+def test_a_created_stage_is_appended_and_then_moved_where_the_board_wants_it():
+    """Plane ignores `sequence` on create — it appends — but takes it on update. Order
+    is not decoration here: `require_verify` and `flag_backward` read the board's stage
+    order to tell a step forward from a step back, so a stage left at the end inverts
+    them."""
     ad, fake = make_adapter()
-    ad.create_stage("Verify", group="started", color="#3b82f6", position=2)
+    ad.create_stage("Verify", group="started", color="#3b82f6")
+    assert [s["name"] for s in fake.states][-1] == "Verify"      # appended by the backend
+
+    ad.set_stage_position("Verify", 2)
     assert [s["name"] for s in fake.states] == [
         "Review", "Approved", "Verify", "Done", "Cancelled"]
     assert next(s for s in fake.states if s["name"] == "Verify")["sequence"] == 30000
 
-    # created without a position: appended, which is the backend's own behaviour
-    ad.create_stage("Later", group="started", color="#3b82f6")
-    assert [s["name"] for s in fake.states][-1] == "Later"
+
+def test_setting_the_default_stage_clears_the_previous_one():
+    """Plane does NOT clear the old default when a new one is set — it ends up with two
+    and then picks. And it refuses to delete whichever holds the flag, which is why
+    `--prune` could not remove its own leftovers until this existed."""
+    ad, fake = make_adapter()
+    fake.states[0]["default"] = True                            # Review
+    ad.set_default_stage("Approved")
+    assert [s["name"] for s in fake.states if s.get("default")] == ["Approved"]
+    assert ad.default_stage() == "Approved"
 
 
 def test_delete_stage_resolves_the_name_and_keeps_the_trailing_slash():

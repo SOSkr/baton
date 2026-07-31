@@ -99,15 +99,33 @@ class BoardBase(ABC):
         """
 
     @abstractmethod
-    def create_stage(self, name: str, *, group: str, color: str,
-                     position: int | None = None) -> None:
-        """Add a stage. `group` is the backend's lifecycle group (see `stage_groups`).
+    def create_stage(self, name: str, *, group: str, color: str) -> None:
+        """Add a stage. `group` is the backend's lifecycle group (see `stage_groups`)."""
 
-        `position` is its 0-based place in the board order, and it is not cosmetic:
-        baton reads `list_stages()` ORDER to decide whether a move goes forward or
-        backward and whether it skipped verification. A backend that appends every new
-        stage at the end would silently invert those rules.
+    @abstractmethod
+    def set_stage_position(self, name: str, position: int) -> None:
+        """Put `name` at 0-based `position` in the board order.
+
+        Order is not cosmetic here: baton reads `list_stages()` ORDER to decide whether
+        a move goes forward or backward and whether it skipped verification. Backends
+        append new stages at the end, so without this the first column of the lifecycle
+        can end up after the last one — and the rules quietly invert.
+
+        Unlike a stage's group, position carries no meaning about the work sitting in
+        it, which is why this is the one property `bootstrap` will rewrite on a stage it
+        did not create.
         """
+
+    @abstractmethod
+    def default_stage(self) -> str | None:
+        """The stage a new item lands in when none is given, by the backend's own
+        reckoning. None if the backend has no such concept."""
+
+    @abstractmethod
+    def set_default_stage(self, name: str) -> None:
+        """Make `name` that stage. Whether the previous default has to be cleared by
+        hand is the backend's business, not the caller's — Plane, for one, will happily
+        end up with two."""
 
     @abstractmethod
     def delete_stage(self, name: str) -> None:

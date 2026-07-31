@@ -97,10 +97,27 @@ mkdir -p .baton && cp docs/config.example.yaml .baton/config.yaml
 Or let `baton bootstrap` write the required half for you — see
 [`baton-bootstrap`](skills/baton-bootstrap/SKILL.md).
 
-Notable ones: `stages` renames baton's verbs to your columns (and declaring
-`stages.verify` **gates** it) · `repos` maps an `area:` label to a repo for multi-repo
-projects · `tokens` holds env var NAMES, never credentials · `git` names your branches,
-explained in [docs/git-flow.md](docs/git-flow.md).
+Notable ones: `stages` maps baton's lifecycle vocabulary to **what this board calls
+each column** (and declaring `stages.verify` **gates** it) · `repos` maps an `area:`
+label to a repo for multi-repo projects · `tokens` holds env var NAMES, never
+credentials · `git` names your branches, explained in
+[docs/git-flow.md](docs/git-flow.md).
+
+### Stage names live in one place
+
+Every command takes a column name **or baton's own name for it**, so nothing hardcodes
+a board's vocabulary:
+
+```bash
+baton list --stage @approve      # whatever THIS board calls the approved column
+baton new --title "..." --stage @triage
+baton advance 42 --to @verify
+```
+
+`@triage · @approve · @start · @verify · @ship · @cancel`. Rename a column in `stages:`
+and every command and skill follows. `baton bootstrap` also makes `@triage` the board's
+**default** stage, so an item created without one lands inside the lifecycle instead of
+in whatever column the backend picked — and `baton doctor` says so if either drifts.
 
 ## Credential roles
 

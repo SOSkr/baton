@@ -13,11 +13,20 @@ from ...config import Config, resolve_token
 from .. import registry
 from .base import BoardBase
 
-# Lifecycle verb -> stage name, when the project declares no alias. The verbs are
-# baton's; the column names are the project's, which is why `config.stages` can
-# rename any of them.
-_DEFAULT_STAGE = {"approve": "Approved", "start": "In Progress",
-                  "verify": "Verify", "ship": "Deployed"}
+# baton's lifecycle vocabulary -> the column that means it here, when the project
+# declares no alias. THE WHOLE MAP IS OPTIONAL: a config that says nothing gets these.
+#
+# This is the only place a column name is written down. Everything else — the CLI, the
+# skills — refers to the stage by its baton name (`@approve`), so a project that renames
+# a column changes one line of config and nothing else.
+_DEFAULT_STAGE = {
+    "triage": "Review",         # where a new item lands: the board's default stage
+    "approve": "Approved",
+    "start": "In Progress",
+    "verify": "Verify",
+    "ship": "Deployed",
+    "cancel": "Cancelled",      # where dropped work goes
+}
 
 # The stage set `bootstrap` creates when a project declares none: the four verb
 # defaults above, plus where an item starts and where it goes when dropped. Order is
@@ -34,6 +43,27 @@ def get(cfg: Config, role: str = "agent") -> BoardBase:
 def verb_stage(cfg: Config, verb: str) -> str:
     """Resolve a lifecycle verb to a board stage name (config alias or default)."""
     return cfg.stages.get(verb, _DEFAULT_STAGE[verb])
+
+
+def resolve_stage(cfg: Config, value: str) -> str:
+    """`@approve` -> whatever this project calls that stage. Anything else is taken
+    literally, so `--stage "In Progress"` still works.
+
+    The `@` form is what lets a skill say `baton list --stage @approve` instead of
+    hardcoding a column name that is only correct on the board it was written against.
+    """
+    if not value.startswith("@"):
+        return value
+    verb = value[1:].strip().lower()
+    if verb not in _DEFAULT_STAGE:
+        raise BatonError(f"unknown lifecycle stage {value!r}. Known: "
+                         + ", ".join("@" + k for k in _DEFAULT_STAGE))
+    return verb_stage(cfg, verb)
+
+
+def stage_map(cfg: Config) -> dict[str, str]:
+    """The whole vocabulary as baton-name -> board column, defaults filled in."""
+    return {verb: verb_stage(cfg, verb) for verb in _DEFAULT_STAGE}
 
 
 def require_verify(ad: BoardBase, cfg: Config, item_id: str,
@@ -159,7 +189,22 @@ def wanted_stages(cfg: Config) -> list[tuple[str, str]]:
     return [(n, g or guessed[i]) for i, (n, g) in enumerate(pairs)]
 
 
-def ensure(ad: BoardBase, project_name: str, stages: list[tuple[str, str]]) -> dict:
+def ensure_default_stage(ad: BoardBase, name: str) -> str:
+    """Make `name` where new items land. Returns what happened, for the report.
+
+    Worth doing even though most boards ship a default: the backend's own default is
+    a column IT chose (Plane calls it Backlog), so an item created without an explicit
+    stage lands outside the lifecycle this project declared — and stays there, because
+    nothing in the flow ever looks at a column nobody named.
+    """
+    if ad.default_stage() == name:
+        return "already"
+    ad.set_default_stage(name)
+    return f"set to {name}"
+
+
+def ensure(ad: BoardBase, project_name: str, stages: list[tuple[str, str]],
+           default: str | None = None) -> dict:
     """The board, then its stages. Looks before creating, at both levels.
 
     Never touches what already exists — not the project, not a stage whose group
@@ -176,10 +221,10 @@ def ensure(ad: BoardBase, project_name: str, stages: list[tuple[str, str]]) -> d
     by_lower = {name.lower(): (name, group) for name, group in have.items()}
     report: dict = {"project": found, "created": created, "stages": {}, "extra": []}
 
-    for position, (name, group) in enumerate(stages):
+    for name, group in stages:
         hit = by_lower.get(name.lower())
         if hit is None:
-            ad.create_stage(name, group=group, color=_COLOR[group], position=position)
+            ad.create_stage(name, group=group, color=_COLOR[group])
             report["stages"][name] = f"created ({group})"
         elif hit[1] and hit[1] != group:
             # Not fixed here: changing a stage's group changes what every item already
@@ -188,16 +233,35 @@ def ensure(ad: BoardBase, project_name: str, stages: list[tuple[str, str]]) -> d
         else:
             report["stages"][name] = "existed"
 
+    # Where new items land, before anything is pruned: the backend refuses to delete
+    # the stage holding that flag, so moving it is what makes its own leftovers
+    # removable at all.
+    if default:
+        if default.lower() in {n.lower() for n, _ in stages}:
+            report["default"] = ensure_default_stage(ad, default)
+        else:
+            # `stages.triage` names a column this project never declared. Not fatal —
+            # the board still works — but new items will land wherever the backend
+            # decides, which is the thing this exists to stop.
+            report["default"] = f"NOT set — {default!r} is not in board_stages"
+
     wanted = {n.lower() for n, _ in stages}
     report["extra"] = [n for n in have if n.lower() not in wanted]
 
     # ORDER is a rule, not decoration: `require_verify` and `flag_backward` read the
-    # board's own stage order to tell a step forward from a step back. A pre-existing
-    # stage keeps whatever position the backend gave it, and nothing here reorders it —
-    # so when the result does not match what the config declared, say so.
+    # board's own stage order to tell a step forward from a step back. Backends append,
+    # and a stage that already existed sits wherever the backend once put it — so the
+    # declared order is applied to ALL of them, created or not. Position says nothing
+    # about the work in a column, which is why this is the one thing here that rewrites
+    # a stage nobody asked to create.
+    declared = [n for n, _ in stages]
+    if [s for s in ad.list_stages() if s.lower() in wanted] != declared:
+        for position, name in enumerate(declared):
+            ad.set_stage_position(name, position)
+        report["order"] = "reordered to match board_stages"
     final = [s for s in ad.list_stages() if s.lower() in wanted]
-    if final != [n for n, _ in stages]:
-        report["order"] = final
+    if final != declared:                     # the backend did not take it: say so
+        report["order"] = f"still {' · '.join(final)}"
     return report
 
 
