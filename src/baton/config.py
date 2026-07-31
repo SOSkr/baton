@@ -4,6 +4,7 @@ Minimal by design — everything not here is discovered by the adapter.
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
@@ -32,6 +33,60 @@ _DEFAULT_ADAPTERS = {"repo": "github", "read": "github_projects"}
 # repos have no integration branch at all, and `main` is as common as `master` — so
 # they are config, not constants baked into a skill.
 DEFAULT_GIT = {"integration": "develop", "production": "master"}
+
+
+# Where agent runtimes keep their MCP server definitions. baton reads these files for
+# one thing only: the NAMES of servers whose env declares a variable this project needs
+# and the shell does not have. The VALUE is never read — `doctor` prints where the
+# credential lives and the command to export it, and the user runs that command. A CLI
+# that quietly picked up a token from another program's config would be a credential
+# nobody chose, used with a role nobody declared.
+_MCP_CONFIGS = ("~/.claude.json", ".mcp.json")
+
+
+def credential_sources(var: str) -> list[tuple[str, Path, list[str]]]:
+    """MCP servers whose env declares `var`, as (server name, file, key path).
+
+    The key path is what a caller needs to build a copy-pasteable command; it is where
+    the value IS, not the value.
+    """
+    out: list[tuple[str, Path, list[str]]] = []
+    for raw in _MCP_CONFIGS:
+        path = Path(raw).expanduser()
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue                      # no config there, or not ours to parse
+        for prefix, block in _mcp_blocks(data):
+            for name, server in (block or {}).items():
+                if var in ((server or {}).get("env") or {}):
+                    out.append((name, path, [*prefix, name, "env", var]))
+    return out
+
+
+def _mcp_blocks(data: dict):
+    """Every `mcpServers` map in an agent config, with the keys that lead to it.
+    Claude Code keeps a global one and one per project directory."""
+    if isinstance(data.get("mcpServers"), dict):
+        yield ["mcpServers"], data["mcpServers"]
+    for proj, cfg in (data.get("projects") or {}).items():
+        if isinstance((cfg or {}).get("mcpServers"), dict):
+            yield ["projects", proj, "mcpServers"], cfg["mcpServers"]
+
+
+def shared_credential_roles(cfg: "Config") -> list[str]:
+    """Roles whose board credential resolves to the SAME env var.
+
+    Not an error — a solo project legitimately has one Plane key, and saying so in
+    `tokens:` is the supported way to declare it. But it means the agent/admin split is
+    not splitting anything on this board, and that should be visible rather than
+    assumed. (On Plane it can be decorative even with two variables: an API key inherits
+    the role of the user who made it, so two keys of one account have identical power.)
+    """
+    seen: dict[str, list[str]] = {}
+    for role in ROLES:
+        seen.setdefault(cfg.token_env(role), []).append(role)
+    return next((roles for roles in seen.values() if len(roles) > 1), [])
 
 
 def github_token_env(role: str) -> str:

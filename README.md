@@ -119,6 +119,24 @@ The board and the code host are two systems with two credentials each — `docto
 merge step of a release. Tokens themselves **never** go in `config.yaml` — only the
 env var names, so a project can point a role at a different variable.
 
+**One credential on the board?** Point both roles at it. That is the supported way to
+say so, and `doctor` then reports the split as decorative instead of letting you assume
+it is protecting something:
+
+```yaml
+tokens: {agent: PLANE_API_KEY, admin: PLANE_API_KEY}
+```
+
+Worth knowing for Plane specifically: an API key inherits the role of the **user** who
+created it, so two keys from one account have identical power — the split there is real
+only when the two keys belong to two accounts. On GitHub it is enforced by the host
+itself, which does not let a PR author approve their own PR.
+
+**Credential missing?** `doctor` looks for it in the MCP servers an agent runtime has
+configured (`~/.claude.json`, `.mcp.json`) and prints where it is, plus the command to
+export it. It never reads the value: a token picked up silently from another program's
+config is a credential nobody chose, used with a role nobody declared.
+
 ```bash
 baton doctor                  # one REAL read-only call per role, per system
 baton --as admin <verb>       # opt in explicitly
