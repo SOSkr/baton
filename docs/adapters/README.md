@@ -51,6 +51,12 @@ Three layering rules are enforced by [`tests/test_frontier.py`](../../tests/test
 not by good intentions: a role's rules may not import a provider, nothing under
 `adapters/` may import `core`, and no adapter prints.
 
+Which backend the board should be is not a matter of taste either: it was measured, and
+the method and the numbers are in
+[docs/design/board-backends.md](../design/board-backends.md) — including the test no
+vendor documentation answers, which is what a body looks like after a human merely
+*opens* the item.
+
 ## Rules that apply to all three
 
 **1. Nothing is hardcoded.** No project id, no field id, no status option id, no label

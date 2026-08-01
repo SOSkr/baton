@@ -1,0 +1,13 @@
+- generic [ref=e3]:
+  - generic [ref=e4] [cursor=pointer]: Username
+  - textbox "Username" [active] [ref=e5]
+  - text: "*"
+  - generic [ref=e6] [cursor=pointer]: Password
+  - textbox "Password" [ref=e7]
+  - text: "*"
+  - generic [ref=e8] [cursor=pointer]:
+    - checkbox "Remember Me" [checked] [ref=e9]
+    - text: Remember Me
+  - button "Sign in" [ref=e11] [cursor=pointer]
+  - link "Forgot password?" [ref=e13] [cursor=pointer]:
+    - /url: /forgot-password

@@ -1,0 +1,63 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e2]:
+    - generic [ref=f5e3]:
+      - generic [ref=f5e4]:
+        - list:
+          - listitem [ref=f5e5]:
+            - link "My account" [ref=f5e6] [cursor=pointer]:
+              - /url: /my/account
+          - listitem [ref=f5e7]:
+            - link "Sign out" [ref=f5e8] [cursor=pointer]:
+              - /url: /logout
+      - generic [ref=f5e9]:
+        - text: Logged in as
+        - link "admin" [ref=f5e10] [cursor=pointer]:
+          - /url: /users/1
+      - list:
+        - listitem [ref=f5e11]:
+          - link "Home" [ref=f5e12] [cursor=pointer]:
+            - /url: /
+        - listitem [ref=f5e13]:
+          - link "My page" [ref=f5e14] [cursor=pointer]:
+            - /url: /my/page
+        - listitem [ref=f5e15]:
+          - link "Projects" [ref=f5e16] [cursor=pointer]:
+            - /url: /projects
+        - listitem [ref=f5e17]:
+          - link "Administration" [ref=f5e18] [cursor=pointer]:
+            - /url: /admin
+        - listitem [ref=f5e19]:
+          - link "Help" [ref=f5e20] [cursor=pointer]:
+            - /url: https://www.redmine.org/guide
+    - generic [ref=f5e21]:
+      - generic [ref=f5e22]:
+        - generic [ref=f5e23]:
+          - generic [ref=f5e24]:
+            - link "Search" [ref=f5e25] [cursor=pointer]:
+              - /url: /search
+            - text: ":"
+          - textbox "Search:" [ref=f5e26]
+        - generic [ref=f5e27]: Jump to a project...
+      - heading "Redmine" [level=1] [ref=f5e29]
+    - generic [ref=f5e31]:
+      - generic [ref=f5e32]: Your password has expired or the administrator requires you to change it.
+      - heading "Change password" [level=2] [ref=f5e35]
+      - generic [ref=f5e36]:
+        - generic [ref=f5e37]:
+          - paragraph [ref=f5e38]:
+            - generic [ref=f5e39]: Current password *
+            - textbox "Current password *" [ref=f5e40]
+          - paragraph [ref=f5e41]:
+            - generic [ref=f5e42]: New password *
+            - textbox "New password *" [ref=f5e43]
+            - emphasis [ref=f5e44]: Must be at least 8 characters long.
+          - paragraph [ref=f5e45]:
+            - generic [ref=f5e46]: Confirmation *
+            - textbox "Confirmation *" [ref=f5e47]
+        - button "Apply" [ref=f5e48] [cursor=pointer]
+    - generic [ref=f5e49]:
+      - text: Powered by
+      - link "Redmine" [ref=f5e50] [cursor=pointer]:
+        - /url: https://www.redmine.org/
+      - text: © 2006-2026 Jean-Philippe Lang
+  - log [ref=f5e51]
