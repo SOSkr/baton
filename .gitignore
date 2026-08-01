@@ -6,3 +6,6 @@ __pycache__/
 dist/
 *.egg-info/
 .scratch/
+
+# capturas y volcados del navegador de Playwright, generados al depurar
+.playwright-mcp/
