@@ -33,10 +33,10 @@ _TAG = re.compile(r"<[^>]+>")
 def _strip_html(s: str) -> str:
     """Plane stores bodies and comments as HTML; baton's vocabulary is plain text.
 
-    Used for BOTH now. Comments have `comment_stripped` to fall back from, work-items
-    have no such field — verified against a live instance, where neither the list nor
-    the detail endpoint returns `description_stripped` even though the SDK model
-    declares it. So for item bodies this is not a fallback, it is the only path.
+    Used for BOTH, and for both it is the ONLY path here — not a fallback. The SDK
+    models declare `description_stripped` and `comment_stripped`, but a live instance
+    returns neither: not on the work-item list, not on its detail, not on comments. The
+    `or` in `comments()` stays for backends that do send it; on this one it never fires.
 
     ponytail: regex, not a parser — what round-trips through here is text baton itself
     wrote and escaped on the way out, not arbitrary documents.
