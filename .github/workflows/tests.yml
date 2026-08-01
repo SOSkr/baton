@@ -24,7 +24,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install pyyaml pytest
+      # Installs what pyproject DECLARES. Listing deps here by hand meant two lists
+      # of the same thing, and the one nobody looks at is the one that drifts.
+      - run: pip install -e . pytest
       # pytest descubre. Listar los archivos a mano hacía que un test nuevo se
       # saltara en silencio.
       - run: python -m pytest -q

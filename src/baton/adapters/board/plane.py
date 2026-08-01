@@ -24,10 +24,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from markdown_it import MarkdownIt
+
 from ...base import BatonError, Comment, Group, Item
 from .base import BoardBase
 
 _TAG = re.compile(r"<[^>]+>")
+
+# CommonMark plus tables — the verdict a triage posts IS a table. `linkify` is left off
+# on purpose: it would drag in another dependency to autolink text nobody asked to link.
+_MD = MarkdownIt("commonmark").enable("table")
 
 
 def _strip_html(s: str) -> str:
@@ -44,8 +50,29 @@ def _strip_html(s: str) -> str:
     return html.unescape(_TAG.sub("", s.replace("</p>", "\n").replace("<br>", "\n")))
 
 
+def _markdown_to_html(text: str) -> str:
+    """A COMMENT on its way into Plane, rendered so the board reads like prose.
+
+    Comments only. Bodies deliberately stay literal markdown, and the asymmetry is the
+    point rather than an oversight:
+
+    - a comment is append-only — nothing in baton ever rewrites one — so rendering it
+      cannot compound;
+    - a body is the CONTRACT. `baton-verify` grades it criterion by criterion and
+      `baton body` rewrites it, so a lossy read would be baked back in on every edit:
+      `## Acceptance criteria` returns as `Acceptance criteria`, `- [ ]` loses its
+      bullet, and the next edit saves that.
+
+    `html=False` (the default) is load-bearing: it escapes raw HTML while rendering, so
+    `<id>` in a comment still travels as text. Converting with a library that passes
+    HTML through would need escaping FIRST — and escaping turns `>` into `&gt;`, which
+    would stop `> quoted` from being a quote. One pass, in the only order that works.
+    """
+    return _MD.render(text or "")
+
+
 def _as_html(text: str) -> str:
-    """Text on its way INTO Plane's HTML field.
+    """A BODY on its way INTO Plane's HTML field. Escaped, never converted.
 
     Escaping is what stops the field eating content: `<id>` in a body reads as a tag
     and is dropped on save — silently, and it was, until an item documenting a CLI
@@ -380,7 +407,7 @@ class PlaneBoard(BoardBase):
         # own trail one comment at a time.
         self._request("POST",
                        f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/comments/",
-                       {"comment_html": f"<p>{_as_html(text)}</p>"})
+                       {"comment_html": _markdown_to_html(text)})
 
     def comments(self, item_id: str) -> list[Comment]:
         uuid = self._issue_uuid(item_id)

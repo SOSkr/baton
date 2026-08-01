@@ -14,7 +14,9 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Libraries",
 ]
-dependencies = ["pyyaml>=6"]
+# markdown-it-py renders COMMENTS into the HTML field Plane stores them in. Item
+# bodies stay literal markdown on purpose — see adapters/board/plane.py.
+dependencies = ["pyyaml>=6", "markdown-it-py>=3"]
 
 [project.urls]
 Homepage = "https://github.com/SOSkr/baton"
