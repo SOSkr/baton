@@ -237,6 +237,59 @@ def test_verify_stage_cannot_be_skipped():
     assert c.get(it3.id).stage == "Done"
 
 
+def test_show_prints_the_body_and_list_does_not():
+    """The body IS the item — the user story, the criteria, the scope. `baton-verify`
+    opens by reading it, and for a long time `show` did not print it: the skill sent
+    readers to a command that could not answer its own first question.
+
+    `list` stays one line per item: there the body would be noise.
+    """
+    import argparse
+    import io
+    from contextlib import redirect_stdout
+
+    from baton.cli import cmd_list, cmd_show
+    from baton.config import Config
+
+    a = FakeAdapter()
+    it = a.create("Add dark mode", "## User story\nComo alguien, quiero algo.\n\n- [ ] un criterio", [])
+    b = Baton(Config(backend="plane"), board=a)
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd_show(argparse.Namespace(id=it.id, comments=False, json=False), b, b.cfg)
+    shown = out.getvalue()
+    assert "## User story" in shown and "- [ ] un criterio" in shown
+    assert "Add dark mode" in shown          # y sigue mostrando lo de antes
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd_list(argparse.Namespace(stage=None, label=None, state="open", group=None,
+                                    json=False), b, b.cfg)
+    assert "User story" not in out.getvalue(), "list debe seguir siendo una línea por item"
+
+
+def test_show_with_comments_puts_the_body_first():
+    """The thread reads as what happened AFTER the item said what it wanted."""
+    import argparse
+    import io
+    from contextlib import redirect_stdout
+
+    from baton.cli import cmd_show
+    from baton.config import Config
+
+    a = FakeAdapter()
+    it = a.create("x", "el cuerpo del item", [])
+    a.comment(it.id, "un comentario")
+    b = Baton(Config(backend="plane"), board=a)
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd_show(argparse.Namespace(id=it.id, comments=True, json=False), b, b.cfg)
+    shown = out.getvalue()
+    assert shown.index("el cuerpo del item") < shown.index("un comentario")
+
+
 def test_version_is_derived_not_written_twice():
     """The number used to live in two literals and they drifted: PyPI served 0.3.0
     while `baton doctor` printed 0.1.0. Now `pyproject.toml` is the only place a human
@@ -261,6 +314,8 @@ if __name__ == "__main__":
     test_labels_add_remove()
     test_verb_stage()
     test_backward_flag()
+    test_show_prints_the_body_and_list_does_not()
+    test_show_with_comments_puts_the_body_first()
     test_version_is_derived_not_written_twice()
     try:
         test_config_load()
