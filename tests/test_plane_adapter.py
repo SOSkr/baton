@@ -157,7 +157,8 @@ def test_discovery_and_lifecycle():
     assert ad.get("1").state == "open"
 
     ad.comment("1", "looks good")
-    assert [c["comment_html"] for c in fake.items["w-1"]["comments"]] == ["<p>looks good</p>"]
+    # rendered, not interpolated: the field is HTML and the board is read by people
+    assert [c["comment_html"] for c in fake.items["w-1"]["comments"]] == ["<p>looks good</p>\n"]
 
     ad.set_labels("1", add=["priority:high"], remove=["type:idea"])
     assert ad.get("1").labels == ["priority:high"]
@@ -310,23 +311,51 @@ def test_a_body_survives_the_round_trip_intact():
     assert ad.get(it.id).body == "otra vez con <angulos>"
 
 
-def test_a_comment_survives_the_round_trip_intact():
-    """Same field, same bug as the body had: `comment_html` eats anything shaped like a
-    tag. It matters more than its size suggests — the thread is the trail `baton-catch-up`
-    and the next agent read, and it was being corrupted one comment at a time.
+def test_a_comment_keeps_its_text_through_the_round_trip():
+    """`comment_html` eats anything shaped like a tag, and the thread is the trail
+    `baton-catch-up` and the next agent read — it was being corrupted one comment at a
+    time.
 
-    The `&` case is here on purpose: `html.escape` converts it too, and an implementation
-    that got ampersands wrong would sail past the angle-bracket cases.
+    This asserted exact equality until comments started being RENDERED (BATON-4). It no
+    longer can: markdown markers are consumed by the renderer, so a backtick does not
+    come back. What must survive is the text — above all the angle brackets, which is
+    the data loss this test was written for. The `&` case stays because an escaping bug
+    would sail past the angle cases.
     """
     ad, fake = make_adapter()
     it = ad.create("x", "", [])
-    text = "revisar `<id>` y `<file>`, ver `List<T>` & cía"
-    ad.comment(it.id, text)
-    assert [c.body for c in ad.comments(it.id)] == [text]
+    ad.comment(it.id, "revisar `<id>` y `<file>`, ver `List<T>` & cía")
+    got = ad.comments(it.id)[0].body
+    assert "<id>" in got and "<file>" in got and "List<T>" in got and "&" in got
+    assert "revisar" in got and "cía" in got
 
     stored = fake.items[next(iter(fake.items))]["comments"][0]["comment_html"]
     assert "<id>" not in stored and "&lt;id&gt;" in stored
     assert "&amp;" in stored                      # the ampersand travels escaped too
+    assert "<code>" in stored                     # and the markdown became real HTML
+
+
+def test_a_comment_is_rendered_so_the_board_reads_like_prose():
+    """The verdict a triage posts is a table; before this it reached the board as a row
+    of pipes. Rendering is why the thread is readable in a browser at all."""
+    ad, fake = make_adapter()
+    it = ad.create("x", "", [])
+    ad.comment(it.id, "## Review\n\n| Criterio | Nota |\n|---|---|\n| Clarity | 5/5 |\n\n**approve**")
+    stored = fake.items[next(iter(fake.items))]["comments"][0]["comment_html"]
+    for tag in ("<h2>", "<table>", "<td>", "<strong>"):
+        assert tag in stored, f"{tag} missing: {stored[:120]}"
+
+
+def test_a_body_is_never_rendered_only_escaped():
+    """The other half of the decision: the body is the contract `baton-verify` grades
+    criterion by criterion, and `baton body` rewrites what it read — so rendering it
+    would bake the loss in on every edit. It stays literal markdown."""
+    ad, fake = make_adapter()
+    body = "## Acceptance criteria\n- [ ] uno\n- [ ] dos"
+    it = ad.create("x", body, [])
+    assert ad.get(it.id).body == body             # markers intact, exactly as written
+    stored = fake.items[next(iter(fake.items))]["description_html"]
+    assert "<h2>" not in stored and "## Acceptance" in stored
 
 
 def test_backend_markup_never_reaches_the_body():
