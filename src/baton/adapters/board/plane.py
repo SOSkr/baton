@@ -31,10 +31,33 @@ _TAG = re.compile(r"<[^>]+>")
 
 
 def _strip_html(s: str) -> str:
-    """Plane stores comments as HTML. Only used as a fallback when the API
-    doesn't return `comment_stripped`. ponytail: regex, not a parser — these
-    are agent-written comments, not arbitrary documents."""
+    """Plane stores bodies and comments as HTML; baton's vocabulary is plain text.
+
+    Used for BOTH now. Comments have `comment_stripped` to fall back from, work-items
+    have no such field — verified against a live instance, where neither the list nor
+    the detail endpoint returns `description_stripped` even though the SDK model
+    declares it. So for item bodies this is not a fallback, it is the only path.
+
+    ponytail: regex, not a parser — what round-trips through here is text baton itself
+    wrote and escaped on the way out, not arbitrary documents.
+    """
     return html.unescape(_TAG.sub("", s.replace("</p>", "\n").replace("<br>", "\n")))
+
+
+def _as_html(text: str) -> str:
+    """Text on its way INTO Plane's HTML field.
+
+    Escaping is what stops the field eating content: `<id>` in a body reads as a tag
+    and is dropped on save — silently, and it was, until an item documenting a CLI
+    placeholder came back without it. Angle brackets are ordinary characters in the
+    prose this tool carries (`<file>`, `List<T>`, `<mail@host>`), so they travel as
+    text.
+
+    What this does NOT do is turn markdown into HTML — headings and lists stay literal
+    in Plane's web UI. That is deliberate and tracked separately: this change is about
+    not losing what the author typed.
+    """
+    return html.escape(text or "")
 
 # Plane's State.group values (plane/models/enums.py GroupEnum). "closed" for
 # baton's open/closed Item.state means the board considers the work done or
@@ -175,7 +198,7 @@ class PlaneBoard(BoardBase):
             stage=stage,
             state="closed" if group in _CLOSED_GROUPS else "open",
             labels=[self._label_name(lb) for lb in (j.get("labels") or [])],
-            body=j.get("description_html", ""),
+            body=_strip_html(j.get("description_html") or ""),
         )
 
     # ---------- groups (Plane modules — "epics" in baton's skills) ----------
@@ -311,7 +334,8 @@ class PlaneBoard(BoardBase):
     def create(self, title: str, body: str, labels: list[str],
                priority: str | None = None) -> Item:
         label_ids = [self._label_id(lb) for lb in labels]
-        payload = {"name": title, "description_html": body or "<p></p>", "labels": label_ids}
+        payload = {"name": title, "description_html": _as_html(body) or "<p></p>",
+                   "labels": label_ids}
         if priority:
             payload["priority"] = priority
         j = self._request("POST", f"{self.workspace}/projects/{self._proj()}/work-items/",
@@ -386,7 +410,7 @@ class PlaneBoard(BoardBase):
     def edit_body(self, item_id: str, body: str) -> None:
         uuid = self._issue_uuid(item_id)
         self._request("PATCH", f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/",
-                       {"description_html": body})
+                       {"description_html": _as_html(body)})
 
     def close(self, item_id: str, reason: str = "") -> None:
         cancelled = next((s for s in self._discover_states() if s.get("group") in _CLOSED_GROUPS),

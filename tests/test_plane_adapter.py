@@ -289,6 +289,37 @@ def test_a_created_stage_is_appended_and_then_moved_where_the_board_wants_it():
     assert next(s for s in fake.states if s["name"] == "Verify")["sequence"] == 30000
 
 
+def test_a_body_survives_the_round_trip_intact():
+    """The bug this closes lost text without saying so: `description_html` is an HTML
+    field, so anything that looks like a tag was read as one and dropped on save. An
+    item documenting `baton show <id>` came back saying `baton show `.
+
+    Angle brackets are ordinary characters in the prose this tool carries — `<file>`,
+    `List<T>`, `<mail@host>` — so they have to travel as text.
+    """
+    ad, fake = make_adapter()
+    body = "usar: `baton show <id>`\n\nver `List<T>` y <mail@host> & cía"
+    it = ad.create("x", body, [])
+    assert it.body == body                       # what went in is what comes back
+
+    stored = fake.items[next(iter(fake.items))]["description_html"]
+    assert "<id>" not in stored, "the raw tag reached the field that eats it"
+    assert "&lt;id&gt;" in stored               # escaped, so the backend keeps it
+
+    ad.edit_body(it.id, "otra vez con <angulos>")
+    assert ad.get(it.id).body == "otra vez con <angulos>"
+
+
+def test_backend_markup_never_reaches_the_body():
+    """Plane wraps what it stores. Whatever it wraps with is the backend's business,
+    not something every consumer of `Item.body` should have to strip."""
+    ad, fake = make_adapter()
+    it = ad.create("x", "hola", [])
+    uid = next(iter(fake.items))
+    fake.items[uid]["description_html"] = "<span>línea uno</p>línea dos</span> &amp; fin"
+    assert ad.get(it.id).body == "línea uno\nlínea dos & fin"
+
+
 def test_setting_the_default_stage_clears_the_previous_one():
     """Plane does NOT clear the old default when a new one is set — it ends up with two
     and then picks. And it refuses to delete whichever holds the flag, which is why
