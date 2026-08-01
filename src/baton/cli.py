@@ -46,14 +46,22 @@ def cmd_new(a, b, cfg):
 
 def cmd_show(a, b, cfg):
     it = b.board.get(a.id)
+    if a.json:
+        _emit({"item": it, "comments": b.board.comments(a.id)} if a.comments else it, True)
+        return
+
+    _emit(it, False)
+    # The body IS the item: the user story, the acceptance criteria, the scope. Leaving
+    # it out made `baton show` unable to answer the one question `baton-verify` opens
+    # with — "what did this item say it would do" — and sent every reader to `--json`.
+    # `list` stays one line per item on purpose; this is the single-item view.
+    if it.body:
+        print()
+        for line in it.body.strip().splitlines():
+            print(f"  {line}")
     if not a.comments:
-        _emit(it, a.json)
         return
     cs = b.board.comments(a.id)
-    if a.json:
-        _emit({"item": it, "comments": cs}, True)
-        return
-    _emit(it, False)
     if not cs:
         print("  (no comments)")
     for c in cs:
