@@ -88,7 +88,7 @@ Los dos pasan el requisito y los tres criterios. Cada uno tiene **un** hueco:
 | | Kanboard | Redmine |
 |---|---|---|
 | `set_labels` — **abstracto en `BoardBase`** | nativo (`setTaskTags`, múltiples) | **no existe**: categoría de a una, o custom fields por proyecto |
-| `list_groups` — **capacidad opcional** | no tiene | `versions` con fecha |
+| `list_groups` — **capacidad opcional** | derivable de los task links | `versions` con fecha |
 
 El contrato ya clasificó esas dos cosas. `list_groups` está declarado opcional y con
 degradación prevista: *"a backend that lacks a concept says so, instead of every backend
@@ -119,9 +119,23 @@ tokens le dice nada a quien lee.
 
 ## Lo que Kanboard cuesta
 
-- **`baton-roadmap` no funciona** ahí. Los swimlanes son filas del tablero, no
-  entregables con fecha. `baton groups` va a dar el error de capacidad ausente, que es
-  el comportamiento previsto, no una falla.
+- **`baton-roadmap` sale, pero no gratis.** No hay un objeto "épica" nativo. Hay algo
+  mejor de lo que parece: los **task links** relacionan tareas completas, y dos de los
+  tipos que trae de fábrica son `targets milestone` / `is a milestone of`.
+
+  Probado contra la instancia: la épica es una tarea, así que ya tiene `date_due`,
+  cuerpo y comentarios; y `getAllTaskLinks` devuelve las hijas **con `is_active` y
+  `column_title` en la misma respuesta**, así que el progreso es una llamada y sale de
+  datos vivos — no de una lista mantenida a mano, que es lo que el contrato prohíbe.
+
+  Lo que Kanboard no hace y Plane sí: mantener el progreso él mismo. Acá lo cuenta el
+  adapter. Y queda una decisión de diseño abierta —una épica es una tarea, así que
+  aparece en el tablero como cualquier otra— resuelta en BATON-22.
+
+  **Las subtareas no sirven para esto** y conviene decirlo, porque el nombre invita: la
+  API devuelve `id, title, status, time_estimated, time_spent, task_id, user_id,
+  position`. Sin cuerpo, sin comentarios, sin columna, sin tags, sin prioridad, sin URL.
+  Es un ítem de checklist, no una tarea.
 - **JSON-RPC, no REST.** Un POST a `jsonrpc.php` con `{method, params}`. No es peor, es
   distinto, y el adapter lo absorbe.
 - **Prioridad es un entero**, no un conjunto cerrado como `PRIORITIES`. Hay que mapear.
