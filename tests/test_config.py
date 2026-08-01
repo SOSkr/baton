@@ -148,7 +148,7 @@ def test_write_config_roundtrips_and_refuses_to_clobber():
             write_config("plane", dict(target, project="OTHER"), root=root)
             assert False, "expected BatonError"
         except BatonError as e:
-            assert "already exists" in str(e)
+            assert "already says something different" in str(e) and "OTHER" in str(e)
         write_config("plane", dict(target, project="OTHER"), root=root, force=True)
         assert load(root).target["project"] == "OTHER"
 
@@ -170,22 +170,22 @@ def test_multirepo_project_resolves_the_repo_from_the_area_label():
         root = Path(d)
         _write(root / ".baton" / "config.yaml",
                _PLANE % "CANGURO"
-               + "repo: soskr/canguro\n"
+               + "repo: acme/app\n"
                "repos:\n"
-               "  engine: soskr/canguro-engine\n"
-               "  web: soskr/canguro-web\n")
+               "  engine: acme/app-engine\n"
+               "  web: acme/app-web\n")
         cfg = load(root)
-        assert cfg.repo_for("engine") == "soskr/canguro-engine"
-        assert cfg.repo_for("web") == "soskr/canguro-web"
-        assert cfg.repo_for("unknown") == "soskr/canguro"   # falls back to the default
-        assert cfg.repo_for(None) == "soskr/canguro"
+        assert cfg.repo_for("engine") == "acme/app-engine"
+        assert cfg.repo_for("web") == "acme/app-web"
+        assert cfg.repo_for("unknown") == "acme/app"   # falls back to the default
+        assert cfg.repo_for(None) == "acme/app"
 
-        assert cfg.repo_for_labels(["type:bug", "area:web"]) == "soskr/canguro-web"
-        assert cfg.repo_for_labels(["type:bug"]) == "soskr/canguro"
+        assert cfg.repo_for_labels(["type:bug", "area:web"]) == "acme/app-web"
+        assert cfg.repo_for_labels(["type:bug"]) == "acme/app"
 
         # doctor has to check every repo — a credential can reach one and not the next
-        assert set(cfg.all_repos) == {"soskr/canguro", "soskr/canguro-engine",
-                                      "soskr/canguro-web"}
+        assert set(cfg.all_repos) == {"acme/app", "acme/app-engine",
+                                      "acme/app-web"}
 
 
 def test_migration_source_is_project_data_not_skill_data():
@@ -194,9 +194,9 @@ def test_migration_source_is_project_data_not_skill_data():
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         _write(root / ".baton" / "config.yaml",
-               _PLANE % "AOTBOT" + "migrate_from: {repo: soskr/aot, project: 3}\n")
+               _PLANE % "AOTBOT" + "migrate_from: {repo: acme/legacy, project: 3}\n")
         cfg = load(root)
-        assert cfg.migrate_from == {"repo": "soskr/aot", "project": 3}
+        assert cfg.migrate_from == {"repo": "acme/legacy", "project": 3}
 
         # a project that never migrated simply has none
         _write(root / "other" / ".baton" / "config.yaml", _PLANE % "X")
@@ -236,6 +236,79 @@ def test_write_config_rejects_incomplete_targets():
                 pass
 
 
+def test_credential_sources_finds_the_server_without_reading_the_secret():
+    """`doctor` says WHERE a missing credential lives. What it must never do is read
+    it: a token picked up from another program's config is a credential nobody chose,
+    used with a role nobody declared."""
+    import json
+    from baton.config import credential_sources
+    with tempfile.TemporaryDirectory() as d:
+        cfgfile = Path(d) / "agent.json"
+        cfgfile.write_text(json.dumps({
+            "mcpServers": {
+                "plane-mcp": {"command": "npx", "env": {"PLANE_API_KEY": "s3cr3t",
+                                                        "PLANE_WORKSPACE_SLUG": "acme"}},
+                "other": {"command": "npx", "env": {"SOMETHING_ELSE": "x"}},
+            },
+            "projects": {"/w/app": {"mcpServers": {
+                "scoped": {"env": {"PLANE_API_KEY": "another"}}}}},
+        }))
+        import baton.config as mod
+        orig = mod._MCP_CONFIGS
+        try:
+            mod._MCP_CONFIGS = (str(cfgfile),)
+            got = credential_sources("PLANE_API_KEY")
+        finally:
+            mod._MCP_CONFIGS = orig
+
+    names = [n for n, _, _ in got]
+    assert names == ["plane-mcp", "scoped"]          # global and project-scoped blocks
+    assert not credential_sources_leaks(got), "a value escaped into the result"
+    assert got[0][2] == ["mcpServers", "plane-mcp", "env", "PLANE_API_KEY"]
+    assert got[1][2][:2] == ["projects", "/w/app"]
+
+
+def credential_sources_leaks(rows) -> bool:
+    return any("s3cr3t" in str(part) or "another" in str(part)
+               for row in rows for part in row)
+
+
+def test_a_var_no_server_declares_is_simply_absent():
+    from baton.config import credential_sources
+    assert credential_sources("NOPE_NOT_A_VAR_" + "X" * 8) == []
+
+
+def test_shared_credential_roles_notices_a_decorative_split():
+    """Pointing both roles at one variable is the supported way to say "this board has
+    one key" — but then the split is not splitting anything, and doctor says so."""
+    from baton.config import Config, shared_credential_roles
+    one = Config(backend="plane", tokens={"agent": "K", "admin": "K"})
+    assert shared_credential_roles(one) == ["agent", "admin"]
+    two = Config(backend="plane", tokens={"agent": "K", "admin": "K_ADMIN"})
+    assert shared_credential_roles(two) == []
+    assert shared_credential_roles(Config(backend="plane")) == []   # defaults differ
+
+
+def test_doctor_reports_everything_even_with_no_credentials_at_all():
+    """Its contract: check EVERYTHING, then say what is broken. One that dies halfway
+    hides the failure after the one it died on."""
+    import os
+    from baton.cli import main
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _write(root / ".baton" / "config.yaml", _PLANE % "APP")
+        cwd, saved = os.getcwd(), {k: os.environ.pop(k, None)
+                                   for k in ("PLANE_API_KEY", "PLANE_ADMIN_API_KEY",
+                                             "GH_TOKEN", "GH_ADMIN_TOKEN")}
+        try:
+            os.chdir(root)
+            rc = main(["doctor"])          # must not raise
+        finally:
+            os.chdir(cwd)
+            os.environ.update({k: v for k, v in saved.items() if v is not None})
+    assert rc == 1                          # and it reports failure rather than dying
+
+
 if __name__ == "__main__":
     test_loads_new_fields()
     test_sibling_by_name_and_by_path()
@@ -250,4 +323,8 @@ if __name__ == "__main__":
     test_migration_source_is_project_data_not_skill_data()
     test_git_branch_names_are_config_with_defaults()
     test_write_config_rejects_incomplete_targets()
+    test_credential_sources_finds_the_server_without_reading_the_secret()
+    test_a_var_no_server_declares_is_simply_absent()
+    test_shared_credential_roles_notices_a_decorative_split()
+    test_doctor_reports_everything_even_with_no_credentials_at_all()
     print("ok")

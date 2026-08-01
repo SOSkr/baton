@@ -4,12 +4,14 @@
 API answers to states, not the subprocess. Run: `python tests/test_repo_host.py` or
 `pytest`.
 """
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from baton.adapters.repos import github as gh_mod  # noqa: E402
+from baton.adapters._gh import GhError  # noqa: E402
+from baton.adapters.repo import github as gh_mod  # noqa: E402
 from baton.base import BatonError  # noqa: E402
 
 
@@ -64,6 +66,96 @@ def test_trunk_based_asks_once():
         gh_mod.gh = orig
 
 
+def _recorder(answers):
+    """`gh` replaced by a lookup on the joined argv. A value that is an Exception is
+    raised, so a test can say "this endpoint 404s" or "this one 403s"."""
+    calls = []
+
+    def fake(*args, want_json=False, stdin=None):
+        key = " ".join(args)
+        calls.append((key, stdin))
+        for pat, val in answers.items():
+            if pat in key:
+                if isinstance(val, Exception):
+                    raise val
+                return val
+        return {} if want_json else ""
+
+    return fake, calls
+
+
+def test_find_tells_absent_apart_from_forbidden():
+    """The distinction the whole create path rests on: 404 means "not there" and gets
+    created; 403 means "you may not look" and must NOT. Conflating them creates a
+    second repo next to one you simply could not read."""
+    orig = gh_mod.gh
+    try:
+        gh_mod.gh, _ = _recorder({"repos/acme/app": GhError("gh: Not Found (HTTP 404)", 404)})
+        assert gh_mod.GitHubRepo("acme/app").find() is None
+
+        gh_mod.gh, _ = _recorder({"repos/acme/app": GhError("gh: Forbidden (HTTP 403)", 403)})
+        try:
+            gh_mod.GitHubRepo("acme/app").find()
+            assert False, "expected the 403 to propagate"
+        except BatonError as e:
+            assert "403" in str(e)
+
+        gh_mod.gh, _ = _recorder({"repos/acme/app": {
+            "full_name": "acme/app", "private": True, "default_branch": "master"}})
+        assert gh_mod.GitHubRepo("acme/app").find() == {
+            "name": "acme/app", "visibility": "private", "default_branch": "master"}
+    finally:
+        gh_mod.gh = orig
+
+
+def test_existing_branch_is_not_an_error():
+    """422 is GitHub for "reference already exists" — the expected answer on a re-run."""
+    orig = gh_mod.gh
+    try:
+        gh_mod.gh, _ = _recorder({
+            "git/refs": GhError("gh: Reference already exists (HTTP 422)", 422),
+            "git/ref/heads/develop": "sha-develop",
+        })
+        assert gh_mod.GitHubRepo("acme/app").create_branch("develop", "sha") is False
+    finally:
+        gh_mod.gh = orig
+
+
+def test_protection_body_omits_checks_instead_of_sending_an_empty_one():
+    """`required_status_checks: null` vs `contexts: []` is not a detail: a protection
+    requiring a check named "" waits forever for a status nobody reports, and the PR
+    hangs rather than failing."""
+    orig = gh_mod.gh
+    try:
+        gh_mod.gh, calls = _recorder({})
+        ad = gh_mod.GitHubRepo("acme/app")
+        ad.protect_branch("develop", checks=[], reviews=1, enforce_admins=False)
+        body = json.loads(calls[-1][1])
+        assert body["required_status_checks"] is None
+        assert body["required_pull_request_reviews"]["required_approving_review_count"] == 1
+
+        ad.protect_branch("master", checks=["test"], reviews=2, enforce_admins=True)
+        body = json.loads(calls[-1][1])
+        assert body["required_status_checks"] == {"strict": False, "contexts": ["test"]}
+        assert body["enforce_admins"] is True
+    finally:
+        gh_mod.gh = orig
+
+
+def test_a_403_is_not_reported_as_a_missing_branch():
+    """`missing` sends someone to create a branch. A credential problem must not."""
+    orig = gh_mod.gh
+    try:
+        gh_mod.gh, _ = _recorder({"branches/develop": GhError("gh: Forbidden (HTTP 403)", 403)})
+        try:
+            gh_mod.GitHubRepo("acme/app").branch_protection(["develop"])
+            assert False, "expected the 403 to propagate"
+        except BatonError as e:
+            assert "403" in str(e)
+    finally:
+        gh_mod.gh = orig
+
+
 def test_needs_a_repo():
     try:
         gh_mod.GitHubRepo("")
@@ -73,6 +165,10 @@ def test_needs_a_repo():
 
 
 if __name__ == "__main__":
+    test_find_tells_absent_apart_from_forbidden()
+    test_existing_branch_is_not_an_error()
+    test_protection_body_omits_checks_instead_of_sending_an_empty_one()
+    test_a_403_is_not_reported_as_a_missing_branch()
     test_protection_states_are_distinguished()
     test_trunk_based_asks_once()
     test_needs_a_repo()

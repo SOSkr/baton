@@ -2,7 +2,7 @@
 label caching, stage/state mapping) — no network, no live Plane instance.
 
 A FakePlane stands in for the REST API by matching on (method, path) the
-same way the real server would route them, so PlaneAdapter's own code (not
+same way the real server would route them, so PlaneBoard's own code (not
 urllib) is what's under test. Run: `python tests/test_plane_adapter.py` or
 `pytest`.
 """
@@ -13,28 +13,32 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("PLANE_API_KEY", "fake-token")
 
-from baton.adapters.boards.plane import PlaneAdapter  # noqa: E402
+from baton.adapters.board.plane import PlaneBoard  # noqa: E402
 from baton.base import BatonError  # noqa: E402
 
 
 class FakePlane:
     """In-memory stand-in for the Plane REST API, keyed the way
-    PlaneAdapter._request builds paths: '<workspace>/projects/...'."""
+    PlaneBoard._request builds paths: '<workspace>/projects/...'."""
 
     def __init__(self):
+        # Sequences spaced the way Plane spaces its own (15000, 25000, ...): the gaps
+        # are what let a created stage land BETWEEN two existing ones.
         self.states = [
-            {"id": "s-review", "name": "Review", "group": "backlog", "sequence": 1},
-            {"id": "s-approved", "name": "Approved", "group": "unstarted", "sequence": 2},
-            {"id": "s-done", "name": "Done", "group": "completed", "sequence": 3},
-            {"id": "s-cancelled", "name": "Cancelled", "group": "cancelled", "sequence": 4},
+            {"id": "s-review", "name": "Review", "group": "backlog", "sequence": 15000},
+            {"id": "s-approved", "name": "Approved", "group": "unstarted", "sequence": 25000},
+            {"id": "s-done", "name": "Done", "group": "completed", "sequence": 45000},
+            {"id": "s-cancelled", "name": "Cancelled", "group": "cancelled", "sequence": 55000},
         ]
         self.labels = []  # [{id, name}]
         self.items = {}   # uuid -> issue dict
         self.modules = []          # [{id, name, target_date, total_issues, completed_issues}]
         self.module_items = {}     # module id -> [item uuid]
         self._n = 0
+        self.paths: list[str] = []
 
     def request(self, method, path, body=None, params=None):
+        self.paths.append(path)
         parts = path.strip("/").split("/")
         ws, rest = parts[0], parts[1:]
         assert ws == "acme"
@@ -47,6 +51,26 @@ class FakePlane:
 
         if rest == ["states"] and method == "GET":
             return {"results": self.states}
+
+        if rest == ["states"] and method == "POST":
+            # Plane assigns its OWN sequence here and ignores whatever was sent —
+            # appending after every state the project already had. The adapter is
+            # expected to notice and fix it with a second call.
+            self._n += 1
+            row = {"id": f"s-new{self._n}", "name": body["name"], "group": body["group"],
+                   "sequence": max(s["sequence"] for s in self.states) + 10}
+            self.states.append(row)
+            return row
+
+        if rest[:1] == ["states"] and len(rest) == 2 and method == "PATCH":
+            row = next(s for s in self.states if s["id"] == rest[1])
+            row.update(body)
+            self.states.sort(key=lambda s: s["sequence"])
+            return row
+
+        if rest[:1] == ["states"] and len(rest) == 2 and method == "DELETE":
+            self.states = [s for s in self.states if s["id"] != rest[1]]
+            return {}
 
         if rest == ["labels"]:
             if method == "GET":
@@ -112,7 +136,7 @@ class FakePlane:
 
 
 def make_adapter():
-    ad = PlaneAdapter({"base_url": "http://plane.local", "workspace": "acme",
+    ad = PlaneBoard({"base_url": "http://plane.local", "workspace": "acme",
                        "project": "ENG"})
     fake = FakePlane()
     ad._request = lambda method, path, body=None, params=None: fake.request(
@@ -133,7 +157,8 @@ def test_discovery_and_lifecycle():
     assert ad.get("1").state == "open"
 
     ad.comment("1", "looks good")
-    assert [c["comment_html"] for c in fake.items["w-1"]["comments"]] == ["<p>looks good</p>"]
+    # rendered, not interpolated: the field is HTML and the board is read by people
+    assert [c["comment_html"] for c in fake.items["w-1"]["comments"]] == ["<p>looks good</p>\n"]
 
     ad.set_labels("1", add=["priority:high"], remove=["type:idea"])
     assert ad.get("1").labels == ["priority:high"]
@@ -248,6 +273,120 @@ def test_epics_are_native_modules_and_are_never_auto_created():
     fake.modules[0].update(total_issues=12, completed_issues=7)
     got = ad.list_groups()[0]
     assert (got.total, got.done) == (12, 7)   # progress comes from the board, not us
+
+
+def test_a_created_stage_is_appended_and_then_moved_where_the_board_wants_it():
+    """Plane ignores `sequence` on create — it appends — but takes it on update. Order
+    is not decoration here: `require_verify` and `flag_backward` read the board's stage
+    order to tell a step forward from a step back, so a stage left at the end inverts
+    them."""
+    ad, fake = make_adapter()
+    ad.create_stage("Verify", group="started", color="#3b82f6")
+    assert [s["name"] for s in fake.states][-1] == "Verify"      # appended by the backend
+
+    ad.set_stage_position("Verify", 2)
+    assert [s["name"] for s in fake.states] == [
+        "Review", "Approved", "Verify", "Done", "Cancelled"]
+    assert next(s for s in fake.states if s["name"] == "Verify")["sequence"] == 30000
+
+
+def test_a_body_survives_the_round_trip_intact():
+    """The bug this closes lost text without saying so: `description_html` is an HTML
+    field, so anything that looks like a tag was read as one and dropped on save. An
+    item documenting `baton show <id>` came back saying `baton show `.
+
+    Angle brackets are ordinary characters in the prose this tool carries — `<file>`,
+    `List<T>`, `<mail@host>` — so they have to travel as text.
+    """
+    ad, fake = make_adapter()
+    body = "usar: `baton show <id>`\n\nver `List<T>` y <mail@host> & cía"
+    it = ad.create("x", body, [])
+    assert it.body == body                       # what went in is what comes back
+
+    stored = fake.items[next(iter(fake.items))]["description_html"]
+    assert "<id>" not in stored, "the raw tag reached the field that eats it"
+    assert "&lt;id&gt;" in stored               # escaped, so the backend keeps it
+
+    ad.edit_body(it.id, "otra vez con <angulos>")
+    assert ad.get(it.id).body == "otra vez con <angulos>"
+
+
+def test_a_comment_keeps_its_text_through_the_round_trip():
+    """`comment_html` eats anything shaped like a tag, and the thread is the trail
+    `baton-catch-up` and the next agent read — it was being corrupted one comment at a
+    time.
+
+    This asserted exact equality until comments started being RENDERED (BATON-4). It no
+    longer can: markdown markers are consumed by the renderer, so a backtick does not
+    come back. What must survive is the text — above all the angle brackets, which is
+    the data loss this test was written for. The `&` case stays because an escaping bug
+    would sail past the angle cases.
+    """
+    ad, fake = make_adapter()
+    it = ad.create("x", "", [])
+    ad.comment(it.id, "revisar `<id>` y `<file>`, ver `List<T>` & cía")
+    got = ad.comments(it.id)[0].body
+    assert "<id>" in got and "<file>" in got and "List<T>" in got and "&" in got
+    assert "revisar" in got and "cía" in got
+
+    stored = fake.items[next(iter(fake.items))]["comments"][0]["comment_html"]
+    assert "<id>" not in stored and "&lt;id&gt;" in stored
+    assert "&amp;" in stored                      # the ampersand travels escaped too
+    assert "<code>" in stored                     # and the markdown became real HTML
+
+
+def test_a_comment_is_rendered_so_the_board_reads_like_prose():
+    """The verdict a triage posts is a table; before this it reached the board as a row
+    of pipes. Rendering is why the thread is readable in a browser at all."""
+    ad, fake = make_adapter()
+    it = ad.create("x", "", [])
+    ad.comment(it.id, "## Review\n\n| Criterio | Nota |\n|---|---|\n| Clarity | 5/5 |\n\n**approve**")
+    stored = fake.items[next(iter(fake.items))]["comments"][0]["comment_html"]
+    for tag in ("<h2>", "<table>", "<td>", "<strong>"):
+        assert tag in stored, f"{tag} missing: {stored[:120]}"
+
+
+def test_a_body_is_never_rendered_only_escaped():
+    """The other half of the decision: the body is the contract `baton-verify` grades
+    criterion by criterion, and `baton body` rewrites what it read — so rendering it
+    would bake the loss in on every edit. It stays literal markdown."""
+    ad, fake = make_adapter()
+    body = "## Acceptance criteria\n- [ ] uno\n- [ ] dos"
+    it = ad.create("x", body, [])
+    assert ad.get(it.id).body == body             # markers intact, exactly as written
+    stored = fake.items[next(iter(fake.items))]["description_html"]
+    assert "<h2>" not in stored and "## Acceptance" in stored
+
+
+def test_backend_markup_never_reaches_the_body():
+    """Plane wraps what it stores. Whatever it wraps with is the backend's business,
+    not something every consumer of `Item.body` should have to strip."""
+    ad, fake = make_adapter()
+    it = ad.create("x", "hola", [])
+    uid = next(iter(fake.items))
+    fake.items[uid]["description_html"] = "<span>línea uno</p>línea dos</span> &amp; fin"
+    assert ad.get(it.id).body == "línea uno\nlínea dos & fin"
+
+
+def test_setting_the_default_stage_clears_the_previous_one():
+    """Plane does NOT clear the old default when a new one is set — it ends up with two
+    and then picks. And it refuses to delete whichever holds the flag, which is why
+    `--prune` could not remove its own leftovers until this existed."""
+    ad, fake = make_adapter()
+    fake.states[0]["default"] = True                            # Review
+    ad.set_default_stage("Approved")
+    assert [s["name"] for s in fake.states if s.get("default")] == ["Approved"]
+    assert ad.default_stage() == "Approved"
+
+
+def test_delete_stage_resolves_the_name_and_keeps_the_trailing_slash():
+    """The slash is load-bearing: without it Plane answers 301 and urllib does not
+    follow a redirect on DELETE, so `--prune` reported failure while every stage stayed
+    exactly where it was. Found by running it against a real board."""
+    ad, fake = make_adapter()
+    ad.delete_stage("done")                       # case-insensitive, like every lookup
+    assert [s["name"] for s in fake.states] == ["Review", "Approved", "Cancelled"]
+    assert fake.paths[-1].endswith("/"), fake.paths[-1]
 
 
 if __name__ == "__main__":

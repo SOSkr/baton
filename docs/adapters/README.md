@@ -6,18 +6,25 @@ different lifespans.
 
 | Family | Question | Access | Lifespan | Guide |
 |---|---|---|---|---|
-| **boards/** | Where does work-item *state* live? | read **and** write | permanent | [boards.md](boards.md) |
-| **sources/** | What are we migrating *off*? | read **only** | temporary — delete it after the migration | [sources.md](sources.md) |
-| **repos/** | Where does the *code* live? | read, and shell-outs | permanent, tiny | [repos.md](repos.md) |
+| **board/** | Where does work-item *state* live? | read **and** write | permanent | [boards.md](boards.md) |
+| **read/** | What are we migrating *off*? | read **only** | temporary — delete it after the migration | [read.md](read.md) |
+| **repo/** | Where does the *code* live? | read, via the host's API | permanent, small | [repos.md](repos.md) |
 
 ```
 src/baton/adapters/
-├── _gh.py                        # shared `gh` shell-out (repos + sources)
-├── __init__.py                   # the three factories
-├── boards/plane.py
-├── sources/github_projects.py
-└── repos/github.py
+├── _gh.py                     # shared `gh` shell-out (repo + read)
+├── registry.py                # name -> class; the ONLY module that imports a provider
+├── board/
+│   ├── base.py                # BoardBase — the contract
+│   ├── __init__.py            # the role's rules: get(), verb_stage, require_verify, ...
+│   └── plane.py               # a provider; `ADAPTER = PlaneBoard`
+├── repo/  {base.py, __init__.py, github.py}
+└── read/  {base.py, __init__.py, github_projects.py}
 ```
+
+Every role package is the same shape: `base.py` is the contract, `__init__.py` is the
+role's own rules plus its `get()`, and every other file is one provider **whose file
+name is the value a config carries**. `core.Baton` is the only caller above them.
 
 ## Picking the family
 
@@ -31,10 +38,18 @@ methods missing — it is a thing that must never write. Keeping them in separat
 directories makes that a structural fact instead of a runtime question, so nobody has
 to ask "can this one write?" before calling it.
 
-There are deliberately **no `Source` / `Repo` base classes**. With one implementation
-each, an interface is a guess at a contract. The directory carries the rule until a
-second implementation shows what they actually have in common. Only `boards/` has an
-ABC (`baton.base.Adapter`), because it has a real contract that `cli.py` calls into.
+Each family now has its own ABC (`board/base.py`, `repo/base.py`, `read/base.py`), and
+that is a **reversal of an earlier rule here** worth explaining: for a long time only
+boards had one, on the grounds that with a single implementation an interface is a guess
+at a contract. What changed is that there is something to satisfy now — the role's rules
+in `<role>/__init__.py` are written against the ABC and nothing else, so the interface
+is what makes "this rule holds for every board" a checkable claim instead of a comment.
+For `read/`, which has one implementation and a deliberately short life, the ABC exists
+as documentation: it is the answer to "how do I write one of these".
+
+Three layering rules are enforced by [`tests/test_frontier.py`](../../tests/test_frontier.py),
+not by good intentions: a role's rules may not import a provider, nothing under
+`adapters/` may import `core`, and no adapter prints.
 
 ## Rules that apply to all three
 
@@ -42,7 +57,7 @@ ABC (`baton.base.Adapter`), because it has a real contract that `cli.py` calls i
 id. Everything is addressed by **name**, and the adapter *discovers* the internal ids.
 This is the single most important rule in the codebase — it is why a config file is
 five lines instead of a pile of UUIDs, and why moving to another workspace does not
-mean editing code. Cache discovery per-instance (see `PlaneAdapter._discover_states`),
+mean editing code. Cache discovery per-instance (see `PlaneBoard._discover_states`),
 never across runs.
 
 **2. Credentials come from the environment, never from config.** `config.yaml` holds
@@ -78,7 +93,7 @@ adapter's own request helper — so the adapter's logic is what is under test, n
 `urllib`:
 
 ```python
-ad = PlaneAdapter({...})
+ad = PlaneBoard({...})
 fake = FakePlane()
 ad._request = lambda method, path, body=None, params=None: fake.request(
     method, path, body, params)

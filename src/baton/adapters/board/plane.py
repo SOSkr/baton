@@ -24,16 +24,67 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from ...base import Adapter, BatonError, Comment, Group, Item
+from markdown_it import MarkdownIt
+
+from ...base import BatonError, Comment, Group, Item
+from .base import BoardBase
 
 _TAG = re.compile(r"<[^>]+>")
 
+# CommonMark plus tables — the verdict a triage posts IS a table. `linkify` is left off
+# on purpose: it would drag in another dependency to autolink text nobody asked to link.
+_MD = MarkdownIt("commonmark").enable("table")
+
 
 def _strip_html(s: str) -> str:
-    """Plane stores comments as HTML. Only used as a fallback when the API
-    doesn't return `comment_stripped`. ponytail: regex, not a parser — these
-    are agent-written comments, not arbitrary documents."""
+    """Plane stores bodies and comments as HTML; baton's vocabulary is plain text.
+
+    Used for BOTH, and for both it is the ONLY path here — not a fallback. The SDK
+    models declare `description_stripped` and `comment_stripped`, but a live instance
+    returns neither: not on the work-item list, not on its detail, not on comments. The
+    `or` in `comments()` stays for backends that do send it; on this one it never fires.
+
+    ponytail: regex, not a parser — what round-trips through here is text baton itself
+    wrote and escaped on the way out, not arbitrary documents.
+    """
     return html.unescape(_TAG.sub("", s.replace("</p>", "\n").replace("<br>", "\n")))
+
+
+def _markdown_to_html(text: str) -> str:
+    """A COMMENT on its way into Plane, rendered so the board reads like prose.
+
+    Comments only. Bodies deliberately stay literal markdown, and the asymmetry is the
+    point rather than an oversight:
+
+    - a comment is append-only — nothing in baton ever rewrites one — so rendering it
+      cannot compound;
+    - a body is the CONTRACT. `baton-verify` grades it criterion by criterion and
+      `baton body` rewrites it, so a lossy read would be baked back in on every edit:
+      `## Acceptance criteria` returns as `Acceptance criteria`, `- [ ]` loses its
+      bullet, and the next edit saves that.
+
+    `html=False` (the default) is load-bearing: it escapes raw HTML while rendering, so
+    `<id>` in a comment still travels as text. Converting with a library that passes
+    HTML through would need escaping FIRST — and escaping turns `>` into `&gt;`, which
+    would stop `> quoted` from being a quote. One pass, in the only order that works.
+    """
+    return _MD.render(text or "")
+
+
+def _as_html(text: str) -> str:
+    """A BODY on its way INTO Plane's HTML field. Escaped, never converted.
+
+    Escaping is what stops the field eating content: `<id>` in a body reads as a tag
+    and is dropped on save — silently, and it was, until an item documenting a CLI
+    placeholder came back without it. Angle brackets are ordinary characters in the
+    prose this tool carries (`<file>`, `List<T>`, `<mail@host>`), so they travel as
+    text.
+
+    What this does NOT do is turn markdown into HTML — headings and lists stay literal
+    in Plane's web UI. That is deliberate and tracked separately: this change is about
+    not losing what the author typed.
+    """
+    return html.escape(text or "")
 
 # Plane's State.group values (plane/models/enums.py GroupEnum). "closed" for
 # baton's open/closed Item.state means the board considers the work done or
@@ -42,7 +93,7 @@ def _strip_html(s: str) -> str:
 _CLOSED_GROUPS = {"completed", "cancelled"}
 
 
-class PlaneAdapter(Adapter):
+class PlaneBoard(BoardBase):
     def __init__(self, target: dict, token: str | None = None):
         self.base_url = (target.get("base_url") or "").rstrip("/")
         self.workspace = target.get("workspace")
@@ -174,7 +225,7 @@ class PlaneAdapter(Adapter):
             stage=stage,
             state="closed" if group in _CLOSED_GROUPS else "open",
             labels=[self._label_name(lb) for lb in (j.get("labels") or [])],
-            body=j.get("description_html", ""),
+            body=_strip_html(j.get("description_html") or ""),
         )
 
     # ---------- groups (Plane modules — "epics" in baton's skills) ----------
@@ -228,13 +279,90 @@ class PlaneAdapter(Adapter):
             {"issues": [self._issue_uuid(item_id)]})
 
     # ---------- Adapter API ----------
+    # ---------- creation (bootstrap) ----------
+    def find_project(self) -> dict | None:
+        """Same lookup as `_proj()` but answering None instead of raising: bootstrap
+        asks in order to decide, not in order to fail."""
+        rows = self._request("GET", f"{self.workspace}/projects/").get("results", [])
+        for p in rows:
+            if (p.get("identifier") or "").lower() == self.project_identifier.lower():
+                self._project_id = p["id"]
+                return {"id": p["id"], "identifier": p.get("identifier"),
+                        "name": p.get("name", "")}
+        return None
+
+    def create_project(self, name: str) -> dict:
+        """`identifier` is not optional for Plane and not ours to invent: it is the
+        prefix in ENG-123, it comes from `config.target.project`, and it is what every
+        later lookup resolves by."""
+        row = self._request("POST", f"{self.workspace}/projects/",
+                            {"name": name, "identifier": self.project_identifier})
+        self._project_id = row.get("id")
+        self._states = None                  # a fresh project ships its own states
+        return {"id": row.get("id"), "identifier": row.get("identifier"),
+                "name": row.get("name", name)}
+
+    def stage_groups(self) -> dict[str, str]:
+        return {s["name"]: (s.get("group") or "") for s in self._discover_states()}
+
+    def create_stage(self, name: str, *, group: str, color: str) -> None:
+        """Plane assigns its own `sequence` here and ignores one sent with the create —
+        verified against a live instance, where the field is writable in the SDK model
+        either way. Ordering is therefore a separate call; see `set_stage_position`."""
+        self._request("POST", f"{self.workspace}/projects/{self._proj()}/states/",
+                      {"name": name, "color": color, "group": group})
+        self._states = None                  # order and ids changed
+
+    def set_stage_position(self, name: str, position: int) -> None:
+        """Plane orders states by `sequence`, and its own sit at 15000, 25000, ... The
+        step matches so that a column this project does not manage keeps a sane place
+        between the ones it does."""
+        self._patch_state(self._state_by_name(name)["id"],
+                          {"sequence": (position + 1) * 10000})
+        self._states = None
+
+    def default_stage(self) -> str | None:
+        return next((s["name"] for s in self._discover_states() if s.get("default")), None)
+
+    def set_default_stage(self, name: str) -> None:
+        """Two calls, because Plane does NOT clear the old default when a new one is
+        set — it just ends up with two, and then picks. Verified against a live
+        instance; and the order matters: clearing first would leave the project with
+        none if the second call failed.
+
+        Clearing it is also what makes the old default deletable: Plane refuses to
+        remove a state while it holds the flag ("Default state cannot be deleted"),
+        which is why `--prune` could not touch Backlog before this existed.
+        """
+        want = self._state_by_name(name)
+        for state in list(self._discover_states()):
+            if state["id"] == want["id"]:
+                continue
+            if state.get("default"):
+                self._patch_state(state["id"], {"default": False})
+        self._patch_state(want["id"], {"default": True})
+        self._states = None
+
+    def _patch_state(self, state_id: str, body: dict) -> dict:
+        return self._request(
+            "PATCH", f"{self.workspace}/projects/{self._proj()}/states/{state_id}/", body)
+
+    def delete_stage(self, name: str) -> None:
+        """The trailing slash is not style: without it Plane answers 301, and urllib
+        does not follow a redirect on DELETE — so the call reports failure while the
+        stage is still there. Every path in this file ends in one for that reason."""
+        sid = self._state_by_name(name)["id"]
+        self._request("DELETE", f"{self.workspace}/projects/{self._proj()}/states/{sid}/")
+        self._states = None
+
     def list_stages(self) -> list[str]:
         return [s["name"] for s in self._discover_states()]
 
     def create(self, title: str, body: str, labels: list[str],
                priority: str | None = None) -> Item:
         label_ids = [self._label_id(lb) for lb in labels]
-        payload = {"name": title, "description_html": body or "<p></p>", "labels": label_ids}
+        payload = {"name": title, "description_html": _as_html(body) or "<p></p>",
+                   "labels": label_ids}
         if priority:
             payload["priority"] = priority
         j = self._request("POST", f"{self.workspace}/projects/{self._proj()}/work-items/",
@@ -272,9 +400,14 @@ class PlaneAdapter(Adapter):
 
     def comment(self, item_id: str, text: str) -> None:
         uuid = self._issue_uuid(item_id)
+        # Escaped for the same reason a body is: `comment_html` is an HTML field, so
+        # anything shaped like a tag is read as one and dropped on save. The comment
+        # thread is what `baton-catch-up` and the next agent read — and agents write
+        # `<id>`, `<file>`, `List<T>` constantly, so this was corrupting the project's
+        # own trail one comment at a time.
         self._request("POST",
                        f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/comments/",
-                       {"comment_html": f"<p>{text}</p>"})
+                       {"comment_html": _markdown_to_html(text)})
 
     def comments(self, item_id: str) -> list[Comment]:
         uuid = self._issue_uuid(item_id)
@@ -309,7 +442,7 @@ class PlaneAdapter(Adapter):
     def edit_body(self, item_id: str, body: str) -> None:
         uuid = self._issue_uuid(item_id)
         self._request("PATCH", f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/",
-                       {"description_html": body})
+                       {"description_html": _as_html(body)})
 
     def close(self, item_id: str, reason: str = "") -> None:
         cancelled = next((s for s in self._discover_states() if s.get("group") in _CLOSED_GROUPS),
@@ -317,3 +450,8 @@ class PlaneAdapter(Adapter):
         if cancelled is None:
             raise BatonError("no completed/cancelled state found on this project's board")
         self.set_stage(item_id, cancelled["name"])
+
+
+# What `registry.resolve('board', 'plane')` returns. The class name is free to
+# change; this constant and the FILE NAME are the contract.
+ADAPTER = PlaneBoard

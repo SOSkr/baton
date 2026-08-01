@@ -4,8 +4,9 @@ Minimal by design — everything not here is discovered by the adapter.
 """
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 
 import yaml
@@ -23,10 +24,69 @@ _DEFAULT_TOKENS = {
 BACKENDS = ("plane",)
 ROLES = ("agent", "admin")
 
+# Which provider serves each adapter role. The value is the FILE NAME under
+# `adapters/<role>/` — see adapters/registry.py. Only the board has ever varied; the
+# other two get a default so no existing config has to be touched to keep working.
+_DEFAULT_ADAPTERS = {"repo": "github", "read": "github_projects"}
+
 # The two branches baton's skills reach for. Names vary per project — trunk-based
 # repos have no integration branch at all, and `main` is as common as `master` — so
 # they are config, not constants baked into a skill.
-_DEFAULT_GIT = {"integration": "develop", "production": "master"}
+DEFAULT_GIT = {"integration": "develop", "production": "master"}
+
+
+# Where agent runtimes keep their MCP server definitions. baton reads these files for
+# one thing only: the NAMES of servers whose env declares a variable this project needs
+# and the shell does not have. The VALUE is never read — `doctor` prints where the
+# credential lives and the command to export it, and the user runs that command. A CLI
+# that quietly picked up a token from another program's config would be a credential
+# nobody chose, used with a role nobody declared.
+_MCP_CONFIGS = ("~/.claude.json", ".mcp.json")
+
+
+def credential_sources(var: str) -> list[tuple[str, Path, list[str]]]:
+    """MCP servers whose env declares `var`, as (server name, file, key path).
+
+    The key path is what a caller needs to build a copy-pasteable command; it is where
+    the value IS, not the value.
+    """
+    out: list[tuple[str, Path, list[str]]] = []
+    for raw in _MCP_CONFIGS:
+        path = Path(raw).expanduser()
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue                      # no config there, or not ours to parse
+        for prefix, block in _mcp_blocks(data):
+            for name, server in (block or {}).items():
+                if var in ((server or {}).get("env") or {}):
+                    out.append((name, path, [*prefix, name, "env", var]))
+    return out
+
+
+def _mcp_blocks(data: dict):
+    """Every `mcpServers` map in an agent config, with the keys that lead to it.
+    Claude Code keeps a global one and one per project directory."""
+    if isinstance(data.get("mcpServers"), dict):
+        yield ["mcpServers"], data["mcpServers"]
+    for proj, cfg in (data.get("projects") or {}).items():
+        if isinstance((cfg or {}).get("mcpServers"), dict):
+            yield ["projects", proj, "mcpServers"], cfg["mcpServers"]
+
+
+def shared_credential_roles(cfg: "Config") -> list[str]:
+    """Roles whose board credential resolves to the SAME env var.
+
+    Not an error — a solo project legitimately has one Plane key, and saying so in
+    `tokens:` is the supported way to declare it. But it means the agent/admin split is
+    not splitting anything on this board, and that should be visible rather than
+    assumed. (On Plane it can be decorative even with two variables: an API key inherits
+    the role of the user who made it, so two keys of one account have identical power.)
+    """
+    seen: dict[str, list[str]] = {}
+    for role in ROLES:
+        seen.setdefault(cfg.token_env(role), []).append(role)
+    return next((roles for roles in seen.values() if len(roles) > 1), [])
 
 
 def github_token_env(role: str) -> str:
@@ -37,19 +97,31 @@ def github_token_env(role: str) -> str:
 
 @dataclass
 class Config:
-    backend: str                              # "github" | "plane"
     target: dict = field(default_factory=dict)   # github: {repo, owner?, project?}
     labels: dict = field(default_factory=dict)   # {axes: [...]}
     stages: dict = field(default_factory=dict)   # verb->stage aliases: {approve: Approved, ...}
     tokens: dict = field(default_factory=dict)   # role->ENV VAR NAME: {agent: GH_TOKEN, admin: GH_ADMIN_TOKEN}
     repo: str | None = None                       # OWNER/REPO where the CODE lives, when the board is elsewhere
-    git: dict = field(default_factory=lambda: dict(_DEFAULT_GIT))  # {integration, production}
+    git: dict = field(default_factory=lambda: dict(DEFAULT_GIT))  # {integration, production}
     repos: dict = field(default_factory=dict)     # multi-repo project: {area-label-value: OWNER/REPO}
     migrate_from: dict = field(default_factory=dict)  # read-only source board: {repo, project}
     review_label: str | None = None               # label applied on UNEXPECTED (backward) transitions
     memory: str | None = None                     # this project's name in the session-memory store, if any
     projects: dict = field(default_factory=dict)  # sibling boards: {name: path to its .baton/config.yaml or its dir}
+    adapters: dict = field(default_factory=dict)  # role -> provider file name: {board: plane, repo: github}
+    # `backend: plane` is the older spelling of `adapters.board`. It is accepted here
+    # forever — it is on people's disks — but it is NOT stored: it is translated on the
+    # way in, and `cfg.backend` below reads back out of `adapters`. One fact, one home,
+    # so the two spellings cannot drift apart.
+    backend: InitVar[str | None] = None
+    board_stages: list = field(default_factory=list)  # stages the board MUST have (bootstrap creates them)
+    visibility: str | None = None                 # new repos: private | public (bootstrap only)
     path: Path | None = None                     # where it was loaded from
+
+    def __post_init__(self, backend):
+        self.adapters = {**_DEFAULT_ADAPTERS, **(self.adapters or {})}
+        if backend and not self.adapters.get("board"):
+            self.adapters["board"] = backend
 
     def token_env(self, role: str) -> str:
         """The env var NAME holding the credential for `role`."""
@@ -83,6 +155,11 @@ class Config:
                 if hit:
                     return hit
         return self.code_repo
+
+
+# Defined after the decorator on purpose: a property assigned inside a dataclass body
+# would be read as the field's default value.
+Config.backend = property(lambda self: self.adapters.get("board"))
 
 
 def resolve_token(cfg: Config, role: str) -> str | None:
@@ -125,7 +202,10 @@ def load(start: Path | None = None) -> Config:
 
 def load_file(p: Path) -> Config:
     data = yaml.safe_load(p.read_text()) or {}
-    backend = data.get("backend")
+    adapters = data.get("adapters", {}) or {}
+    # `backend:` is the older spelling of `adapters.board`. Both are read, forever:
+    # every config written before this key existed is on someone's disk.
+    backend = data.get("backend") or adapters.get("board")
     if backend == "github":
         raise BatonError(
             f"backend 'github' (GitHub Projects) is no longer a board backend, in {p}. "
@@ -136,12 +216,15 @@ def load_file(p: Path) -> Config:
                          f"(got {backend!r}) in {p}")
     return Config(
         backend=backend,
+        adapters=adapters,
+        board_stages=data.get("board_stages", []) or [],
+        visibility=data.get("visibility"),
         target=data.get("target", {}) or {},
         labels=data.get("labels", {}) or {},
         stages=data.get("stages", {}) or {},
         tokens=data.get("tokens", {}) or {},
         repo=data.get("repo"),
-        git={**_DEFAULT_GIT, **(data.get("git") or {})},
+        git={**DEFAULT_GIT, **(data.get("git") or {})},
         repos=data.get("repos", {}) or {},
         migrate_from=data.get("migrate_from", {}) or {},
         review_label=data.get("review_label"),
@@ -151,21 +234,64 @@ def load_file(p: Path) -> Config:
     )
 
 
-def write_config(backend: str, target: dict, *, repo: str | None = None,
-                 force: bool = False, root: Path | None = None) -> Path:
-    """Write a minimal .baton/config.yaml under `root` (cwd). Everything else —
-    project node id, status field id, stage option ids — stays discovered."""
+# The keys `baton bootstrap` OWNS. Everything else in the file — `tokens`, `memory`,
+# `projects`, the `stages` verb aliases, the multi-repo `repos` map — is the human's,
+# and is merged through untouched. Writing the whole file instead would silently drop
+# work nobody can recover.
+_OWNED = ("adapters", "target", "repo", "git", "visibility", "board_stages")
+
+
+def write_config(board: str, target: dict, *, repo: str | None = None,
+                 git: dict | None = None, visibility: str | None = None,
+                 board_stages: list | None = None, force: bool = False,
+                 root: Path | None = None) -> tuple[Path, dict, bool]:
+    """Write/merge .baton/config.yaml under `root` (cwd).
+
+    Returns `(path, changed, comments_lost)`. Nothing is printed here — the caller owns
+    output — but the caller needs both facts: WHICH values it replaced, and whether the
+    file it rewrote had comments (`yaml.safe_dump` cannot keep them).
+
+    A value that would CHANGE an existing one needs `--force`. A rerun passing the same
+    values changes nothing and so never asks — which is what makes bootstrap resumable
+    after a half-failure.
+    """
     p = (root or Path.cwd()) / ".baton" / "config.yaml"
-    if p.exists() and not force:
-        raise BatonError(f"{p} already exists (use --force to overwrite)")
     if not (target.get("base_url") and target.get("workspace")):
-        raise BatonError(f"{backend} needs --base-url and --workspace")
-    data: dict = {"backend": backend, "target": target}
-    if repo:
-        data["repo"] = repo                  # the code host — the board knows no git
+        raise BatonError(f"{board} needs --base-url and --workspace")
+
+    raw = p.read_text() if p.is_file() else ""
+    existing = (yaml.safe_load(raw) or {}) if raw else {}
+    # Only the board is named: `repo` and `read` have defaults, and a config that does
+    # not repeat a default is a config with less to contradict.
+    new = {"adapters": {"board": board}, "target": target}
+    for key, val in (("repo", repo), ("git", git), ("visibility", visibility),
+                     ("board_stages", board_stages)):
+        if val:
+            new[key] = val
+
+    # A dict-valued key is MERGED, not replaced, before deciding anything changed:
+    # writing `{board: plane}` over `{board: plane, repo: github}` sets no new value, it
+    # just says less. Comparing raw dicts would call that a conflict and stop a re-run
+    # that was meant to resume — and re-running is the documented way to recover from a
+    # half-failed bootstrap.
+    for key, val in list(new.items()):
+        if isinstance(val, dict) and isinstance(existing.get(key), dict):
+            new[key] = {**existing[key], **val}
+    changed = {k: (existing[k], v) for k, v in new.items()
+               if k in existing and existing[k] != v}
+    if changed and not force:
+        lines = "\n".join(f"  {k}: {old!r} -> {want!r}" for k, (old, want) in changed.items())
+        raise BatonError(
+            f"{p} already says something different:\n{lines}\n"
+            f"Re-run with --force to replace those values, or drop the flags to keep them.")
+
+    merged = {**existing, **new}
+    # Owned keys first, in a stable order, so a human diff of this file reads.
+    ordered = {k: merged[k] for k in _OWNED if k in merged}
+    ordered.update({k: v for k, v in merged.items() if k not in ordered})
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
-    return p
+    p.write_text(yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False))
+    return p, changed, "#" in raw
 
 
 def load_project(name_or_path: str, base: Config) -> Config:

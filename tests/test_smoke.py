@@ -8,16 +8,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from baton.base import Adapter, BatonError, Comment, Item  # noqa: E402
+from baton.adapters.board.base import BoardBase  # noqa: E402
+from baton.base import BatonError, Comment, Item  # noqa: E402
+from baton.core import Baton  # noqa: E402
 
 
-class FakeAdapter(Adapter):
+class FakeAdapter(BoardBase):
     STAGES = ["Review", "Approved", "In Progress", "Done"]
 
     def __init__(self):
         self._items: dict[str, Item] = {}
         self._n = 0
         self._comments: list[tuple[str, str]] = []
+        self.STAGES = list(FakeAdapter.STAGES)       # per instance: tests create stages
+        self._groups = {"Review": "unstarted", "Approved": "unstarted",
+                        "In Progress": "started", "Done": "completed"}
+        self._project: dict | None = {"id": "p1", "identifier": "FAKE", "name": "fake"}
+        self._default = "Review"
 
     def probe(self): return "fake backend, always reachable"
 
@@ -64,6 +71,31 @@ class FakeAdapter(Adapter):
     def edit_body(self, item_id, body): self._items[item_id].body = body
 
     def close(self, item_id, reason=""): self._items[item_id].state = "closed"
+
+    # ---- bootstrap surface, in memory ----
+    def find_project(self): return self._project
+
+    def create_project(self, name):
+        self._project = {"id": "p1", "identifier": "FAKE", "name": name}
+        return self._project
+
+    def stage_groups(self): return {s: self._groups.get(s, "") for s in self.STAGES}
+
+    def default_stage(self): return self._default
+
+    def set_default_stage(self, name): self._default = name
+
+    def create_stage(self, name, *, group, color):
+        self.STAGES.append(name)
+        self._groups[name] = group
+
+    def set_stage_position(self, name, position):
+        self.STAGES = [s for s in self.STAGES if s != name]
+        self.STAGES.insert(position, name)
+
+    def delete_stage(self, name):
+        self.STAGES = [s for s in self.STAGES if s.lower() != name.lower()]
+        self._groups.pop(name, None)
 
 
 def test_lifecycle():
@@ -120,12 +152,12 @@ def test_config_load(tmp_path=None):
 
 
 def test_verb_stage():
-    from baton.cli import _verb_stage
+    from baton.adapters.board import verb_stage
     from baton.config import Config
     c = Config(backend="plane", stages={"approve": "Aceptada"})
-    assert _verb_stage(c, "approve") == "Aceptada"   # config alias wins
-    assert _verb_stage(c, "start") == "In Progress"  # default
-    assert _verb_stage(c, "ship") == "Deployed"
+    assert verb_stage(c, "approve") == "Aceptada"   # config alias wins
+    assert verb_stage(c, "start") == "In Progress"  # default
+    assert verb_stage(c, "ship") == "Deployed"
 
 
 def test_backward_flag():
@@ -139,11 +171,11 @@ def test_backward_flag():
     a.set_stage(it.id, "Approved")
 
     # FORWARD (Approved→In Progress): NOT flagged
-    cmd_advance(argparse.Namespace(id=it.id, to="In Progress", json=False), a, cfg)
+    cmd_advance(argparse.Namespace(id=it.id, to="In Progress", json=False), Baton(cfg, board=a), cfg)
     assert "revisar-cambio" not in a.get(it.id).labels
 
     # BACKWARD (In Progress→Review): flagged
-    cmd_advance(argparse.Namespace(id=it.id, to="Review", json=False), a, cfg)
+    cmd_advance(argparse.Namespace(id=it.id, to="Review", json=False), Baton(cfg, board=a), cfg)
     assert "revisar-cambio" in a.get(it.id).labels
 
     # creation is NOT flagged (no stage yet / forward only)
@@ -153,7 +185,9 @@ def test_backward_flag():
     a2 = FakeAdapter()
     it2 = a2.create("y", "", [])
     a2.set_stage(it2.id, "Approved")
-    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False), a2, Config(backend="plane"))
+    c2 = Config(backend="plane")
+    cmd_advance(argparse.Namespace(id=it2.id, to="Review", json=False),
+                Baton(c2, board=a2), c2)
     assert a2.get(it2.id).labels == []
 
 
@@ -169,7 +203,8 @@ def test_verify_stage_cannot_be_skipped():
     cfg = Config(backend="plane", stages={"verify": "In Progress"})
 
     def advance(item, to, c=cfg, ad=None):
-        cmd_advance(argparse.Namespace(id=item, to=to, json=False), ad or a, c)
+        cmd_advance(argparse.Namespace(id=item, to=to, json=False),
+                    Baton(c, board=ad or a), c)
 
     it = a.create("x", "", [])
     a.set_stage(it.id, "Approved")
@@ -202,6 +237,76 @@ def test_verify_stage_cannot_be_skipped():
     assert c.get(it3.id).stage == "Done"
 
 
+def test_show_prints_the_body_and_list_does_not():
+    """The body IS the item — the user story, the criteria, the scope. `baton-verify`
+    opens by reading it, and for a long time `show` did not print it: the skill sent
+    readers to a command that could not answer its own first question.
+
+    `list` stays one line per item: there the body would be noise.
+    """
+    import argparse
+    import io
+    from contextlib import redirect_stdout
+
+    from baton.cli import cmd_list, cmd_show
+    from baton.config import Config
+
+    a = FakeAdapter()
+    it = a.create("Add dark mode", "## User story\nComo alguien, quiero algo.\n\n- [ ] un criterio", [])
+    b = Baton(Config(backend="plane"), board=a)
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd_show(argparse.Namespace(id=it.id, comments=False, json=False), b, b.cfg)
+    shown = out.getvalue()
+    assert "## User story" in shown and "- [ ] un criterio" in shown
+    assert "Add dark mode" in shown          # y sigue mostrando lo de antes
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd_list(argparse.Namespace(stage=None, label=None, state="open", group=None,
+                                    json=False), b, b.cfg)
+    assert "User story" not in out.getvalue(), "list debe seguir siendo una línea por item"
+
+
+def test_show_with_comments_puts_the_body_first():
+    """The thread reads as what happened AFTER the item said what it wanted."""
+    import argparse
+    import io
+    from contextlib import redirect_stdout
+
+    from baton.cli import cmd_show
+    from baton.config import Config
+
+    a = FakeAdapter()
+    it = a.create("x", "el cuerpo del item", [])
+    a.comment(it.id, "un comentario")
+    b = Baton(Config(backend="plane"), board=a)
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd_show(argparse.Namespace(id=it.id, comments=True, json=False), b, b.cfg)
+    shown = out.getvalue()
+    assert shown.index("el cuerpo del item") < shown.index("un comentario")
+
+
+def test_version_is_derived_not_written_twice():
+    """The number used to live in two literals and they drifted: PyPI served 0.3.0
+    while `baton doctor` printed 0.1.0. Now `pyproject.toml` is the only place a human
+    edits it, so this checks the DERIVATION still lands on it — from a checkout, which
+    is the path every local run and every CI run takes."""
+    import tomllib
+
+    import baton
+    root = Path(__file__).resolve().parents[1]
+    declared = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    assert baton.__version__ == declared, \
+        f"baton reports {baton.__version__}, pyproject.toml says {declared}"
+
+    src = (root / "src" / "baton" / "__init__.py").read_text()
+    assert declared not in src, "the version is written in __init__.py again"
+
+
 if __name__ == "__main__":
     test_lifecycle()
     test_verify_stage_cannot_be_skipped()
@@ -209,6 +314,9 @@ if __name__ == "__main__":
     test_labels_add_remove()
     test_verb_stage()
     test_backward_flag()
+    test_show_prints_the_body_and_list_does_not()
+    test_show_with_comments_puts_the_body_first()
+    test_version_is_derived_not_written_twice()
     try:
         test_config_load()
     except ImportError:

@@ -4,8 +4,9 @@
 tracker out so [`baton-migrate`](../../skills/baton-migrate/SKILL.md) can move that
 work onto the real board. Then it is finished.
 
+Contract: [`src/baton/adapters/read/base.py`](../../src/baton/adapters/read/base.py) → `ReadBase`.
 Reference implementation:
-[`src/baton/adapters/sources/github_projects.py`](../../src/baton/adapters/sources/github_projects.py).
+[`src/baton/adapters/read/github_projects.py`](../../src/baton/adapters/read/github_projects.py).
 
 ## Temporary by design
 
@@ -84,16 +85,11 @@ user never saw.
 
 ## Wiring it up
 
-1. Drop the module in `src/baton/adapters/sources/`.
-2. Add a branch to `get_source` in [`adapters/__init__.py`](../../src/baton/adapters/__init__.py):
-
-```python
-def get_source(kind: str, **kw):
-    if kind in ("github", "github_projects"):
-        from .sources.github_projects import GitHubProjectsSource
-        return GitHubProjectsSource(**kw)
-    raise BatonError(f"unknown migration source {kind!r}")
-```
+1. Drop the module in `src/baton/adapters/read/`, named for the value `--from-*` or
+   `migrate_from` will carry, and export `ADAPTER = MyTrackerRead`.
+2. Nothing to wire: `read.get(kind, **kw)` resolves the file name. A shorter alias
+   (`github` → `github_projects`) goes in `_ALIASES` in
+   [`adapters/read/__init__.py`](../../src/baton/adapters/read/__init__.py).
 
 3. Teach `cmd_export` in `cli.py` how to address it, and extend `migrate_from:` in
    config if it needs different coordinates.

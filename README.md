@@ -28,12 +28,14 @@ prompts, so a new agent is a symlink into wherever that agent reads skills from.
 baton/
 ├── src/baton/
 │   ├── cli.py            # verbs: init/config/export/new/priority/verify/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
-│   ├── base.py            # Adapter contract + Item dataclass — every backend implements this
+│   ├── core.py            # class Baton — the one door: skills and cli.py talk to this
+│   ├── base.py            # shared vocabulary: BatonError + Item/Group/Comment
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
-│   └── adapters/          # three families — see docs/adapters/
-│       ├── boards/        # read-WRITE: where item state lives (plane.py)
-│       ├── sources/       # read-ONLY: old trackers, read once to migrate off (github_projects.py)
-│       └── repos/         # the code host: permissions, git work (github.py)
+│   └── adapters/          # three roles — see docs/adapters/
+│       ├── registry.py    # name -> class by file name; the only importer of a provider
+│       ├── board/         # read-WRITE: where item state lives (plane.py)
+│       ├── read/          # read-ONLY: old trackers, read once to migrate off (github_projects.py)
+│       └── repo/          # the code host: permissions, branches, PRs (github.py)
 ├── docs/                  # adapters/ (how to write each family) · git-flow.md · design/
 ├── skills/                # the judgment layer, calls the CLI. Each skill's templates/ is a symlink into ↓
 ├── templates/             # item bodies (task/subtask/bug), epic description, triage verdict, PR review
@@ -63,55 +65,59 @@ symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 | [`baton-ship`](skills/baton-ship/SKILL.md) | Take the integration branch to production and close the items that went out — PR, checks, merge, deploy verification. |
 | [`baton-reject`](skills/baton-reject/SKILL.md) | Reject a work-item: close it with a reason comment. |
 | [`baton-catch-up`](skills/baton-catch-up/SKILL.md) | Recover what already happened — on an item, or in another project you own — before asking anyone. |
-| [`baton-bootstrap`](skills/baton-bootstrap/SKILL.md) | Step zero: create the repo, the board, protections and label axes, then wire baton to it. **Admin credential.** |
+| [`baton-bootstrap`](skills/baton-bootstrap/SKILL.md) | Step zero: create the repo, the board, its stages, protections and label axes, then wire baton to it. **Admin credential.** |
 | [`baton-migrate`](skills/baton-migrate/SKILL.md) | Move an old GitHub Projects board onto the current one — items, stages, and the comment trail. |
 
 ## Config
 
-Per-project `.baton/config.yaml` (walked up from cwd):
+Per-project `.baton/config.yaml` (walked up from cwd). The required half:
 
 ```yaml
-backend: plane
+adapters:                          # which provider serves each role
+  board: plane                     # `backend: plane` is the older spelling, still read
 target:
-  base_url: https://plane.acme.com
-  workspace: acme
-  project: APP        # project identifier
-stages:               # optional verb→stage aliases
-  approve: Approved
-  start: In Progress
-  verify: Verify      # declaring this ALSO gates it — see below
-  ship: Deployed
-tokens:               # optional — env var NAMES per credential role (see below)
-  agent: PLANE_API_KEY
-  admin: PLANE_ADMIN_API_KEY
-review_label: needs-review   # optional — see below
-
-git:                  # optional — branch names; defaults shown. See docs/git-flow.md
-  integration: develop
-  production: master
-repo: OWNER/REPO      # where the CODE lives — the board knows nothing about git
-repos:                # multi-repo project: area-label value → repo
-  engine: OWNER/app-engine
-  web: OWNER/app-web
-migrate_from:         # optional — the old board this project came from
-  repo: OWNER/OLD
-  project: 5
-memory: app-a         # optional — this project's name in your session-memory store
-projects:             # optional — sibling boards you can query with --project
-  b: ../app-b         # relative to the PROJECT root (the dir holding .baton/)
+  base_url: https://plane.acme.com # plane: instance URL
+  workspace: acme                  # plane: workspace slug
+  project: APP                     # plane: project identifier — the APP in APP-123
+repo: acme/app                     # where the CODE lives; the board knows no git
 ```
 
-Everything else (project node id, Status field id, stage option ids) is **discovered**.
+Everything else (project id, Status field id, stage option ids) is **discovered** — no
+ids in this file, ever, which is why it is five lines instead of a pile of UUIDs.
 
-Write it by hand, or let `baton init` do the mechanical part:
+**Every key, with values and comments: [`docs/config.example.yaml`](docs/config.example.yaml).**
+That file is loaded by [`tests/test_docs.py`](tests/test_docs.py), which also checks it
+against `Config` in both directions — so it cannot document a key that does not exist,
+and a new key cannot arrive undocumented. Copy it:
 
 ```bash
-baton init --base-url https://plane.acme.com --workspace acme --board APP --repo OWNER/REPO
+mkdir -p .baton && cp docs/config.example.yaml .baton/config.yaml
 ```
 
-`init` records where an **existing** board is; creating the repo and the board is
-[`baton-bootstrap`](skills/baton-bootstrap/SKILL.md). It refuses to overwrite a config
-without `--force`.
+Or let `baton bootstrap` write the required half for you — see
+[`baton-bootstrap`](skills/baton-bootstrap/SKILL.md).
+
+Notable ones: `stages` maps baton's lifecycle vocabulary to **what this board calls
+each column** (and declaring `stages.verify` **gates** it) · `repos` maps an `area:`
+label to a repo for multi-repo projects · `tokens` holds env var NAMES, never
+credentials · `git` names your branches, explained in
+[docs/git-flow.md](docs/git-flow.md).
+
+### Stage names live in one place
+
+Every command takes a column name **or baton's own name for it**, so nothing hardcodes
+a board's vocabulary:
+
+```bash
+baton list --stage @approve      # whatever THIS board calls the approved column
+baton new --title "..." --stage @triage
+baton advance 42 --to @verify
+```
+
+`@triage · @approve · @start · @verify · @ship · @cancel`. Rename a column in `stages:`
+and every command and skill follows. `baton bootstrap` also makes `@triage` the board's
+**default** stage, so an item created without one lands inside the lifecycle instead of
+in whatever column the backend picked — and `baton doctor` says so if either drifts.
 
 ## Credential roles
 
@@ -129,6 +135,24 @@ The board and the code host are two systems with two credentials each — `docto
 `agent` is the default; nothing needs `--as admin` except `baton-bootstrap` and the
 merge step of a release. Tokens themselves **never** go in `config.yaml` — only the
 env var names, so a project can point a role at a different variable.
+
+**One credential on the board?** Point both roles at it. That is the supported way to
+say so, and `doctor` then reports the split as decorative instead of letting you assume
+it is protecting something:
+
+```yaml
+tokens: {agent: PLANE_API_KEY, admin: PLANE_API_KEY}
+```
+
+Worth knowing for Plane specifically: an API key inherits the role of the **user** who
+created it, so two keys from one account have identical power — the split there is real
+only when the two keys belong to two accounts. On GitHub it is enforced by the host
+itself, which does not let a PR author approve their own PR.
+
+**Credential missing?** `doctor` looks for it in the MCP servers an agent runtime has
+configured (`~/.claude.json`, `.mcp.json`) and prints where it is, plus the command to
+export it. It never reads the value: a token picked up silently from another program's
+config is a credential nobody chose, used with a role nobody declared.
 
 ```bash
 baton doctor                  # one REAL read-only call per role, per system
@@ -182,7 +206,8 @@ link the PR back to the item. Full rules and where each one is enforced:
 ## Usage
 
 ```bash
-baton init --base-url https://p --workspace w --board APP  # write .baton/config.yaml
+baton bootstrap --base-url https://p --workspace w --board APP --repo O/R --check test
+                                    # create/adopt repo+board, protect, write config
 baton doctor                        # validate config + credential roles + discovery
 baton stages                        # the board's stages
 baton new --title "Add dark mode" --label type:idea --stage Review
@@ -221,7 +246,7 @@ branch protection:
   acme/app-engine: develop=protected · master=protected
   acme/app-web: develop=UNPROTECTED · master=protected
   ^ an unprotected branch means an agent with push rights skips the PR, the review and CI entirely.
-    Fix: skills/baton-bootstrap/scripts/protect-branches.sh
+    Fix: baton bootstrap --check <your CI check>   (idempotent; protects every repo the config declares)
 stages: Review, Approved, In Progress, Deployed
 epics (native groups): 2 on the board
 
