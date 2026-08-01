@@ -373,9 +373,14 @@ class PlaneBoard(BoardBase):
 
     def comment(self, item_id: str, text: str) -> None:
         uuid = self._issue_uuid(item_id)
+        # Escaped for the same reason a body is: `comment_html` is an HTML field, so
+        # anything shaped like a tag is read as one and dropped on save. The comment
+        # thread is what `baton-catch-up` and the next agent read — and agents write
+        # `<id>`, `<file>`, `List<T>` constantly, so this was corrupting the project's
+        # own trail one comment at a time.
         self._request("POST",
                        f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/comments/",
-                       {"comment_html": f"<p>{text}</p>"})
+                       {"comment_html": f"<p>{_as_html(text)}</p>"})
 
     def comments(self, item_id: str) -> list[Comment]:
         uuid = self._issue_uuid(item_id)

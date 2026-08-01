@@ -310,6 +310,25 @@ def test_a_body_survives_the_round_trip_intact():
     assert ad.get(it.id).body == "otra vez con <angulos>"
 
 
+def test_a_comment_survives_the_round_trip_intact():
+    """Same field, same bug as the body had: `comment_html` eats anything shaped like a
+    tag. It matters more than its size suggests — the thread is the trail `baton-catch-up`
+    and the next agent read, and it was being corrupted one comment at a time.
+
+    The `&` case is here on purpose: `html.escape` converts it too, and an implementation
+    that got ampersands wrong would sail past the angle-bracket cases.
+    """
+    ad, fake = make_adapter()
+    it = ad.create("x", "", [])
+    text = "revisar `<id>` y `<file>`, ver `List<T>` & cía"
+    ad.comment(it.id, text)
+    assert [c.body for c in ad.comments(it.id)] == [text]
+
+    stored = fake.items[next(iter(fake.items))]["comments"][0]["comment_html"]
+    assert "<id>" not in stored and "&lt;id&gt;" in stored
+    assert "&amp;" in stored                      # the ampersand travels escaped too
+
+
 def test_backend_markup_never_reaches_the_body():
     """Plane wraps what it stores. Whatever it wraps with is the backend's business,
     not something every consumer of `Item.body` should have to strip."""
