@@ -33,10 +33,10 @@ _TAG = re.compile(r"<[^>]+>")
 def _strip_html(s: str) -> str:
     """Plane stores bodies and comments as HTML; baton's vocabulary is plain text.
 
-    Used for BOTH now. Comments have `comment_stripped` to fall back from, work-items
-    have no such field — verified against a live instance, where neither the list nor
-    the detail endpoint returns `description_stripped` even though the SDK model
-    declares it. So for item bodies this is not a fallback, it is the only path.
+    Used for BOTH, and for both it is the ONLY path here — not a fallback. The SDK
+    models declare `description_stripped` and `comment_stripped`, but a live instance
+    returns neither: not on the work-item list, not on its detail, not on comments. The
+    `or` in `comments()` stays for backends that do send it; on this one it never fires.
 
     ponytail: regex, not a parser — what round-trips through here is text baton itself
     wrote and escaped on the way out, not arbitrary documents.
@@ -373,9 +373,14 @@ class PlaneBoard(BoardBase):
 
     def comment(self, item_id: str, text: str) -> None:
         uuid = self._issue_uuid(item_id)
+        # Escaped for the same reason a body is: `comment_html` is an HTML field, so
+        # anything shaped like a tag is read as one and dropped on save. The comment
+        # thread is what `baton-catch-up` and the next agent read — and agents write
+        # `<id>`, `<file>`, `List<T>` constantly, so this was corrupting the project's
+        # own trail one comment at a time.
         self._request("POST",
                        f"{self.workspace}/projects/{self._proj()}/work-items/{uuid}/comments/",
-                       {"comment_html": f"<p>{text}</p>"})
+                       {"comment_html": f"<p>{_as_html(text)}</p>"})
 
     def comments(self, item_id: str) -> list[Comment]:
         uuid = self._issue_uuid(item_id)
