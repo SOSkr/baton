@@ -48,12 +48,33 @@ Aplicado en este orden porque descarta barato antes que caro.
 | devaslanphp/project-management | **no tiene API**: `routes/api.php` es el stub por defecto de Laravel |
 | Huly | la API **son sus paquetes npm**; los cuatro clientes que existen usan el SDK, ninguno habla HTTP |
 | Vikunja | su editor llama `editor.getHTML()` y guarda eso: **mismo defecto que Plane** |
-| GitHub Projects | descartado por el mantenedor, por multiproyecto — ya lo usó |
+| GitHub Projects | ver abajo: ya fue el board de baton y se fue |
 | Gitea | **sin API de projects**: pedida desde 2021 (#14299), cuatro PRs abiertos sin mergear |
 | OpenProject | 191 coincidencias de CKEditor: entra con la misma sospecha que Vikunja |
 
 El patrón: **las apps modernas usan editores de texto rico y guardan HTML**. Las que
 guardan markdown crudo son las orientadas a desarrolladores, y esas fallan en otra cosa.
+
+### Por qué GitHub Projects no vuelve
+
+Es el único candidato que **ya fue** el board de baton, así que la pregunta no es si
+sirve sino por qué se fue. La fuente es el commit `6707cde` (2026-07-28), que lo sacó:
+
+> GitHub Projects deja de ser un board backend. El board es Plane; GitHub queda como
+> host de código. Un config con `backend: github` falla apuntando a la migración, en
+> vez de romper tres verbos después.
+
+Ese commit registra **el cambio, no el motivo** — conviene decirlo en vez de inventarle
+un porqué. Lo que sí dejó en el código es la forma de la decisión: GitHub Projects pasó
+a `sources/`, solo lectura, con el comentario *"un source no es un board degradado"*.
+El rastro sigue vivo en `config.py`, que rechaza `backend: github` y manda a
+`baton-migrate`.
+
+El motivo lo pone el mantenedor, y es de uso, no del formato: **necesita multiproyecto**
+con una sola credencial, y un Project vive colgado de un repo o de una org. Ya lo usó y
+prefiere no volver. Vale distinguirlo de los demás descartes de esta tabla: GitHub
+Projects **guarda markdown crudo** y habría pasado el criterio 3 sin problema. Cae por
+el criterio 2.
 
 ## Los dos finalistas, medidos en vivo
 
@@ -66,6 +87,25 @@ Levantados en Docker, escritos por API, abiertos con un navegador real y releíd
 | idéntico byte a byte | **sí** | sí, salvo `\n` → `\r\n` | no |
 | `## encabezado`, `- [ ]`, tablas | sobreviven | sobreviven | se pierden |
 | `<id>`, `List<T>` | sobreviven | sobreviven | se borraban |
+
+### Todo lo que baton necesita, eje por eje
+
+Medido contra las dos instancias, no leído de la documentación:
+
+| Lo que baton necesita | Kanboard | Redmine |
+|---|---|---|
+| stages nombrados y **ordenados** por API | columnas, CRUD y reordenables | `issue_statuses` + workflow |
+| labels (`set_labels`, **obligatorio**) | tags nativos, varios por tarea | **no existe**: categoría de a una |
+| prioridad **nativa** | entero, hay que mapear | enumeración cerrada: Baja · Normal · Alta · Urgente · Inmediata |
+| comentarios | `createComment` | `notes` en el journal |
+| agrupación tipo épica | task links `is a milestone of` | `versions` con fecha |
+| markdown fiel de ida y vuelta | idéntico | idéntico salvo `\n` → `\r\n` |
+
+Dos matices que solo se ven midiendo. La **prioridad de Redmine encaja mejor** que la de
+Kanboard: es un conjunto cerrado, como `PRIORITIES`, mientras que Kanboard obliga a
+mapear un entero. Y los **comentarios de los dos devuelven el markdown intacto** —
+probado escribiendo ``comentario con **markdown** y `código` `` y releyéndolo igual por
+API, que es justo donde Plane perdía texto (BATON-7).
 
 ### La prueba que ninguna documentación contesta
 
