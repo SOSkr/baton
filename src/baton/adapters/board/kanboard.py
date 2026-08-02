@@ -106,8 +106,13 @@ class KanboardBoard(BoardBase):
     def _ok(self, method: str, **params) -> None:
         """A write that has to have happened. Kanboard answers `false` instead of
         raising, so without this a failed move reports success and the item silently
-        stays where it was."""
-        if self._rpc(method, **params) is False:
+        stays where it was.
+
+        `0` counts too, and that is not hypothetical: `createTask` against a project
+        that does not exist answers `0`, not `false`. An `is False` check walks right
+        past it — found while migrating, on a call that had already passed review.
+        """
+        if self._rpc(method, **params) in (False, 0):
             raise BatonError(f"kanboard {method} returned false (params: "
                              f"{', '.join(sorted(params))})")
 
@@ -406,10 +411,20 @@ class KanboardBoard(BoardBase):
         return out
 
     def set_stage(self, item_id: str, stage: str) -> None:
+        col = int(self._col_by_name(stage)["id"])
+        t = self._rpc("getTask", task_id=int(item_id))
+        if not t:
+            raise BatonError(f"item #{item_id} not found on {self.project_name}")
+        # Moving a task to the column it is already in answers `false` — Kanboard
+        # reports "nothing to do" the same way it reports failure. Without this,
+        # `baton advance <id> --to <su propia etapa>` es un error, y una migración que
+        # recorre todos los items se muere en el primero que ya estaba en su lugar.
+        if int(t.get("column_id") or 0) == col:
+            return
         # swimlane_id=0 is "the project's default swimlane"; position 1 is the top of
         # the column. Kanboard needs both — a move is a coordinate, not a column.
         self._ok("moveTaskPosition", project_id=self._proj(), task_id=int(item_id),
-                 column_id=int(self._col_by_name(stage)["id"]), position=1, swimlane_id=0)
+                 column_id=col, position=1, swimlane_id=0)
 
     def set_labels(self, item_id: str, add=None, remove=None) -> None:
         """Read, merge, write — because `setTaskTags` REPLACES the whole set.

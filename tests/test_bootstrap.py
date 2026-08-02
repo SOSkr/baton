@@ -459,3 +459,28 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
     print("ok — bootstrap rules hold")
+
+
+def test_bootstrap_does_not_reset_the_backend_of_a_configured_project():
+    """`--backend` sin valor tiene que respetar el config. Con un default, re-correr
+    bootstrap sobre un proyecto de Kanboard lo devolvía a plane sin decir nada."""
+    import argparse
+
+    from baton.cli import _bootstrap_config, build_parser
+
+    a = build_parser().parse_args(["bootstrap", "--check", "test"])
+    assert a.backend is None, "un default acá pisa el config"
+
+    ns = argparse.Namespace(**{**vars(a), "backend": None})
+
+    class Cur:
+        backend, target, git, code_repo = "kanboard", {}, {}, None
+        visibility, board_stages = None, None
+
+    import baton.cli as cli
+    orig_find, orig_load = cli.find_config, cli.load
+    cli.find_config, cli.load = (lambda *_, **__: True), (lambda *_, **__: Cur())
+    try:
+        assert _bootstrap_config(ns)["board"] == "kanboard"
+    finally:
+        cli.find_config, cli.load = orig_find, orig_load
