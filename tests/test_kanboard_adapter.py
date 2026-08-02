@@ -392,16 +392,49 @@ def test_find_project_answers_none_not_an_error():
     assert b.find_project() is None              # bootstrap creates on None
 
 
+def test_moving_to_the_stage_it_is_already_in_is_a_no_op():
+    """Kanboard responde `false` a un movimiento que no mueve nada, igual que a uno
+    que falla. Sin esto, `advance` a la etapa actual es un error."""
+    b, fake = board()
+    fake.m_moveTaskPosition = lambda **kw: (_ for _ in ()).throw(
+        AssertionError("no debería llamarse: la tarea ya está en Review"))
+    b.set_stage("1", "Review")
+    assert fake.tasks[1]["column_id"] == 1
+
+
 def test_a_write_that_answers_false_is_an_error():
     """Kanboard reports failure by returning `false`. Taken at face value, a move that
     never happened reports success and the item silently stays put."""
     b, fake = board()
     try:
-        b.set_stage("999", "Approved")           # no such task
+        b.edit_body("999", "cuerpo nuevo")       # no such task -> updateTask: false
     except BatonError as e:
-        assert "moveTaskPosition" in str(e)
+        assert "updateTask" in str(e)
     else:
         raise AssertionError("`false` from a write has to surface")
+
+
+def test_moving_a_task_that_does_not_exist_says_so():
+    b, _ = board()
+    try:
+        b.set_stage("999", "Approved")
+    except BatonError as e:
+        assert "999" in str(e) and "not found" in str(e)
+    else:
+        raise AssertionError("un id inexistente tiene que decirse, no moverse")
+
+
+def test_a_write_that_answers_zero_is_an_error_too():
+    """Kanboard is not consistent about how it says no: `createTask` on a project that
+    does not exist answers `0`, not `false`. An `is False` check walks past it."""
+    b, fake = board()
+    fake.m_addColumn = lambda project_id, title: 0
+    try:
+        b.create_stage("Verify", group="started", color="#000")
+    except BatonError as e:
+        assert "addColumn" in str(e)
+    else:
+        raise AssertionError("`0` from a write has to surface, same as `false`")
 
 
 def test_comments_round_trip_with_author_and_date():
@@ -422,6 +455,34 @@ def test_unknown_stage_lists_the_ones_that_exist():
         assert "Review" in str(e)
     else:
         raise AssertionError("a bad stage name should say what the board has")
+
+
+def test_every_request_says_who_it_is():
+    """Sin User-Agent, urllib manda `Python-urllib/3.x` y un WAF lo corta con un 403
+    que no explica nada. Pasó de verdad: Cloudflare 1010 contra un board que andaba
+    perfecto desde el navegador."""
+    import urllib.request
+
+    from baton.base import user_agent
+
+    ua = user_agent()
+    assert ua.startswith("baton/") and "github.com" in ua
+
+    visto = {}
+    real = urllib.request.Request
+
+    def espia(url, data=None, **kw):
+        visto.update(kw.get("headers") or {})
+        raise RuntimeError("no sale a la red")
+
+    urllib.request.Request = espia
+    try:
+        KanboardBoard(TARGET, token="t")._rpc("getVersion")
+    except RuntimeError:
+        pass
+    finally:
+        urllib.request.Request = real
+    assert visto.get("User-Agent") == ua
 
 
 if __name__ == "__main__":
