@@ -30,11 +30,22 @@ adapters:              # which provider serves each adapter role. The value is t
 target:
   base_url: https://board.acme.com   # kanboard: instance URL, without /jsonrpc.php
   project: APP                       # kanboard: the project's NAME
+  api_user: jsonrpc                  # kanboard: WHOSE credential $KANBOARD_TOKEN is.
+                                     #   `jsonrpc` (the default) means the APPLICATION
+                                     #   token from Settings > API — admin over every
+                                     #   project on the instance. A person's username
+                                     #   here means their own token, with their own
+                                     #   access and nothing else. Adding a second
+                                     #   person to a board should use the second form:
+                                     #   sharing the application token hands them
+                                     #   administration of everything.
   user: admin                        # kanboard: who comments are attributed to. The
                                      #   application token is not a user, so Kanboard
-                                     #   cannot infer it. Optional when the board has
-                                     #   exactly one admin; required past that, because
-                                     #   guessing an author is worse than asking.
+                                     #   cannot infer it. Skip it when `api_user` is a
+                                     #   person — that person IS the author. Needed
+                                     #   with the application token and more than one
+                                     #   admin, because guessing an author is worse
+                                     #   than asking.
 
 # plane: (delete the block above and use this one instead)
 # target:

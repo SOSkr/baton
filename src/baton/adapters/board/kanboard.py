@@ -8,10 +8,19 @@ human opens the item.
 Config (config.target):
   base_url: "https://kanboard.example.com"   # instance URL (required)
   project:  "baton"                          # project NAME — Kanboard has no identifier
+  api_user: "jsonrpc"                        # WHO the credential belongs to (optional)
   user:     "admin"                          # who comments are attributed to (optional)
 
-Auth: KANBOARD_TOKEN env var — never in config.yaml. It goes as HTTP Basic with the
-literal username `jsonrpc`, which is Kanboard's convention for the application token.
+Auth: KANBOARD_TOKEN env var — never in config.yaml — as HTTP Basic, with `api_user`
+as the username. Kanboard accepts two kinds of credential and the username is what
+tells them apart:
+
+  jsonrpc  + the application token   -> admin over every project. Settings > API.
+  <person> + their own token         -> that person's access, and nothing else.
+
+The default is `jsonrpc` because that is what existed first, but it is the bigger
+hammer: sharing it to add someone to a board hands them administration of the whole
+instance. A second person should get their own.
 
 Every shape in here was read off a live instance, not off the docs: which calls
 return `false` instead of raising, that `setTaskTags` REPLACES, that `createComment`
@@ -69,6 +78,9 @@ class KanboardBoard(BoardBase):
             raise BatonError("kanboard adapter needs config.target.base_url and .project")
         self.url = f"{base_url}/jsonrpc.php"
         self.web = base_url
+        # Whose credential this is. `jsonrpc` is Kanboard's convention for the
+        # application token, not a user you have to create.
+        self.api_user = (target.get("api_user") or "jsonrpc").strip()
         self.user_name = target.get("user")
         self.token = token or os.environ.get("KANBOARD_TOKEN")
         if not self.token:
@@ -87,7 +99,7 @@ class KanboardBoard(BoardBase):
         """
         payload = json.dumps({"jsonrpc": "2.0", "id": 1,
                               "method": method, "params": params}).encode()
-        auth = base64.b64encode(f"jsonrpc:{self.token}".encode()).decode()
+        auth = base64.b64encode(f"{self.api_user}:{self.token}".encode()).decode()
         req = urllib.request.Request(self.url, data=payload, method="POST", headers={
             "Content-Type": "application/json", "Authorization": f"Basic {auth}",
             "User-Agent": user_agent()})
@@ -119,12 +131,28 @@ class KanboardBoard(BoardBase):
 
     def probe(self) -> str:
         """Resolving the configured project proves URL, token and that THIS project is
-        reachable, in one call — a token that is merely set has told you nothing."""
+        reachable, in one call — a token that is merely set has told you nothing.
+
+        It also reports WHO the credential is, because with two kinds of credential
+        "the board answers" is half the diagnosis: an agent holding the application
+        token can administer every project on the instance, and that should be visible
+        in `doctor` rather than inferred from a config file nobody re-reads.
+        """
         p = self._rpc("getProjectByName", name=self.project_name)
         if not p:
             raise BatonError(f"reached {self.url} but project {self.project_name!r} "
                              f"is not there")
-        return f"{p.get('name')} — project {p.get('id')}, kanboard {self._rpc('getVersion')}"
+        return (f"{p.get('name')} — project {p.get('id')}, kanboard "
+                f"{self._rpc('getVersion')}, as {self._whoami()}")
+
+    def _whoami(self) -> str:
+        """The application token is not a user, so `getMe` refuses it with a 403 —
+        which makes the refusal itself the answer."""
+        try:
+            me = self._rpc("getMe")
+        except BatonError:
+            return f"{self.api_user} (application token — admin on every project)"
+        return f"{(me or {}).get('username', self.api_user)}"
 
     # ---------- discovery ----------
     def _proj(self) -> int:
@@ -157,6 +185,25 @@ class KanboardBoard(BoardBase):
         worse than asking.
         """
         if self._user_id is None:
+            # A person's credential IS the author, and `getMe` is how they can ask —
+            # `getUserByName` and `getAllUsers` are admin-only and answer a plain user
+            # with 403. Resolving a person's own id through an admin call worked in
+            # tests and failed against a real non-admin account, which is why the
+            # item's verification asked for one.
+            if self.api_user != "jsonrpc":
+                me = self._rpc("getMe") or {}
+                if self.user_name and self.user_name != me.get("username"):
+                    # No es un permiso que falte, es una contradicción: nadie comenta
+                    # a nombre de otro. Decirlo vence a un 403 crudo de un método de
+                    # administración que la persona nunca debió necesitar.
+                    raise BatonError(
+                        f"config.target.user is {self.user_name!r} but the credential "
+                        f"belongs to {me.get('username', self.api_user)!r}. A person "
+                        f"cannot comment as someone else — drop `user`, or use the "
+                        f"application token (api_user: jsonrpc) to attribute freely.")
+                if me.get("id"):
+                    self._user_id = int(me["id"])
+                    return self._user_id
             if self.user_name:
                 u = self._rpc("getUserByName", username=self.user_name)
                 if not u:
