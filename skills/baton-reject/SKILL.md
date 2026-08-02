@@ -18,11 +18,22 @@ an early stage).
 
 1. **Confirm** with the user: reject (drop it) vs defer (keep for later). If defer,
    don't close — adjust priority or leave the stage, and stop here.
-2. **Reject** — comment the reason + close:
+2. **Reject** — name the stage, then close:
    ```bash
+   baton advance <id> --to @cancel
    baton close <id> --reason "Rejected: <why — out of scope / superseded by #NN / not worth the cost>"
    ```
    `baton close` posts the reason as a comment, then closes the item.
+
+   **Both commands, in that order, and the first is not optional.** `close` marks the
+   item closed; it does NOT move it, because a verb that picks a stage on its own is
+   how a *rejected* item once ended up in **Deployed** — the closing state a backend
+   happened to list first. So the caller says where it goes, always.
+
+   That is the same shape `baton-ship` uses (`baton ship` then `baton close`), and the
+   asymmetry between the two was the bug: ship named its stage and reject did not.
+   Without the `advance`, a rejected item reads `closed` while still sitting in the
+   intake column, and every board view shows it as work someone might pick up.
 
 ## Notes
 - Prefer a rejection comment that explains the blocker over silence — a future

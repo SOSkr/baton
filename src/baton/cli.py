@@ -292,25 +292,38 @@ def _probe(label: str, build) -> bool:
 
 
 def cmd_export(a, b, cfg):
-    """Read an old GitHub Projects board out to JSON, comments included, so the
-    migration skill can move it onto the real board. Read-only.
+    """Read an old board out to JSON, comments included, so the migration skill can
+    move it onto the real board. Read-only.
+
+    The source is whatever `adapters/read/` has a file for — `migrate_from.kind`
+    picks it. It started GitHub-only, and `--from-github` still works because the
+    skill and the README say so.
 
     Which old board belongs to which project is PROJECT data, so it lives in that
     project's `.baton/config.yaml` under `migrate_from:` — the skills are installed
     globally and must not carry it. Flags override, for a one-off."""
-    src_cfg = (cfg.migrate_from if cfg else {}) or {}
-    repo = a.from_github or src_cfg.get("repo")
-    project = a.project_number or src_cfg.get("project")
-    if not repo:
+    src_cfg = dict((cfg.migrate_from if cfg else {}) or {})
+    kind = a.from_kind or src_cfg.pop("kind", "github")
+    if a.from_github:                       # the one-off flag names its own source
+        kind, src_cfg = "github", {**src_cfg, "repo": a.from_github}
+    if a.project_number:
+        src_cfg["project"] = a.project_number
+    if a.owner:
+        src_cfg["owner"] = a.owner
+    if not src_cfg:
         raise BatonError(
             "no source board. Either pass --from-github OWNER/REPO, or declare it in "
             "this project's .baton/config.yaml:\n"
-            "  migrate_from: {repo: OWNER/REPO, project: 5}")
-    src = b.read("github", repo=repo, project=project, owner=a.owner)
+            "  migrate_from: {repo: OWNER/REPO, project: 5}\n"
+            "  migrate_from: {kind: plane, base_url: ..., workspace: ..., project: ENG}")
+    src = b.read(kind, **src_cfg)
     items = src.list(state=a.state)
+    # GitHub without a project number has issues but no board, so no stages to read.
+    # Every other source knows its own columns.
+    has_board = kind != "github" or bool(src_cfg.get("project"))
     out = {
-        "source": {"repo": repo, "project": project},
-        "stages": src.list_stages() if project else [],
+        "source": {"kind": kind, **src_cfg},
+        "stages": src.list_stages() if has_board else [],
         "items": [],
     }
     for it in items:
@@ -321,8 +334,8 @@ def cmd_export(a, b, cfg):
         out["items"].append(d)
     print(json.dumps(out, indent=2))
     n_comments = sum(len(i["comments"]) for i in out["items"])
-    print(f"exported {len(items)} items and {n_comments} comments from {repo}",
-          file=sys.stderr)
+    print(f"exported {len(items)} items and {n_comments} comments from "
+          f"{kind}:{src_cfg.get('repo') or src_cfg.get('project')}", file=sys.stderr)
     return 0
 
 
@@ -480,7 +493,11 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("bootstrap", aliases=["init"],
                        help="create the project (repo + board + protections) and write "
                             ".baton/config.yaml. Idempotent: re-run to resume")
-    s.add_argument("--backend", default=BACKENDS[0], choices=list(BACKENDS))
+    # No default: con uno, `bootstrap` re-corrido sobre un proyecto ya configurado
+    # pisaba su backend con el primero de la lista. Latente mientras hubo un solo
+    # backend, y un reseteo silencioso el día que hubo dos.
+    s.add_argument("--backend", choices=list(BACKENDS),
+                   help="board provider; default: lo que diga el config, si no plane")
     s.add_argument("--repo", help="OWNER/REPO where the code lives")
     s.add_argument("--owner", help="reserved for backends that separate board owner")
     # `--board`, not `--project`: the global -p/--project already means "a sibling
@@ -592,9 +609,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--body")
     s.set_defaults(fn=cmd_body)
 
-    s = sub.add_parser("export", help="read an old GitHub Projects board out to JSON "
+    s = sub.add_parser("export", help="read an old board out to JSON "
                                       "(migration source — read-only)")
-    s.add_argument("--from-github", dest="from_github", required=True, metavar="OWNER/REPO")
+    s.add_argument("--from", dest="from_kind", metavar="KIND",
+                   help="source provider (adapters/read/<KIND>.py); default: what "
+                        "migrate_from.kind says, else github")
+    s.add_argument("--from-github", dest="from_github", metavar="OWNER/REPO")
     s.add_argument("--project", dest="project_number", metavar="N",
                    help="ProjectV2 number — without it you get issues but no stages")
     s.add_argument("--owner", help="project owner login (default: repo owner)")

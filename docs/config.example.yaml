@@ -18,14 +18,29 @@
 # --- required -----------------------------------------------------------------------
 
 adapters:              # which provider serves each adapter role. The value is the FILE
-  board: plane         # NAME under src/baton/adapters/<role>/ — see docs/adapters/
+  board: kanboard      # NAME under src/baton/adapters/<role>/ — see docs/adapters/
   repo: github         # optional; github is the default
   read: github_projects  # only used by `baton export` during a migration
 
-target:                # where the board is. Keys depend on the board provider
-  base_url: https://plane.acme.com   # plane: your instance
-  workspace: acme                    # plane: workspace slug
-  project: APP                       # plane: project identifier — the APP in APP-123
+# Where the board is. THE KEYS DEPEND ON THE PROVIDER — this is the one place in the
+# file that is not the same for everyone, so both are spelled out. Use one block.
+#
+# kanboard: there is no workspace and no short identifier. The project is its NAME,
+#           exactly as the board shows it.
+target:
+  base_url: https://board.acme.com   # kanboard: instance URL, without /jsonrpc.php
+  project: APP                       # kanboard: the project's NAME
+  user: admin                        # kanboard: who comments are attributed to. The
+                                     #   application token is not a user, so Kanboard
+                                     #   cannot infer it. Optional when the board has
+                                     #   exactly one admin; required past that, because
+                                     #   guessing an author is worse than asking.
+
+# plane: (delete the block above and use this one instead)
+# target:
+#   base_url: https://plane.acme.com   # plane: your instance
+#   workspace: acme                    # plane: workspace slug
+#   project: APP                       # plane: project identifier — the APP in APP-123
 
 repo: acme/app         # where the CODE lives. The board knows nothing about git
 
@@ -73,12 +88,20 @@ repos:                 # a board project can span several git repos; the `area:`
 
 # --- credentials (names only, never values) -----------------------------------------
 
-tokens:                # the ENV VAR NAME to read per credential role. The agent writes
-  agent: PLANE_API_KEY # code and items; the admin creates and merges. See the README's
-  admin: PLANE_ADMIN_API_KEY   # § Credential roles. GitHub always reads GH_TOKEN /
-                               # GH_ADMIN_TOKEN, whichever provider holds the board.
-                               # One key for this board? Point both roles at it —
-                               # `doctor` then reports the split as decorative.
+tokens:                  # the ENV VAR NAME to read per credential role. The agent writes
+  agent: KANBOARD_TOKEN  # code and items; the admin creates and merges. See the README's
+  admin: KANBOARD_TOKEN  # § Credential roles. GitHub always reads GH_TOKEN /
+                         # GH_ADMIN_TOKEN, whichever provider holds the board.
+                         #
+                         # Both roles point at ONE var here on purpose: Kanboard has a
+                         # single application token, not one per user, so the split
+                         # cannot be real. That is the supported way to say so, and
+                         # `doctor` then reports it as decorative instead of letting
+                         # you assume it protects something.
+                         #
+                         # On Plane: {agent: PLANE_API_KEY, admin: PLANE_ADMIN_API_KEY}
+                         # — and even there the split is real only when the two keys
+                         # belong to two ACCOUNTS, since a key inherits its creator.
 
 # --- optional wiring ----------------------------------------------------------------
 

@@ -11,6 +11,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+def user_agent() -> str:
+    """How baton identifies itself over HTTP.
+
+    Not decoration: urllib sends `Python-urllib/3.x` by default, and a client that
+    will not say who it is looks exactly like a scraper. A WAF in front of a
+    self-hosted board answers it with a 403 that mentions nothing — which is how
+    `baton doctor` came to report `403 error code: 1010` against a board that was
+    working perfectly for a browser.
+
+    Saying the name and version is also what lets an operator ALLOW it deliberately,
+    instead of having to widen a rule for "some Python thing".
+    """
+    from .version import resolve
+    return f"baton/{resolve()} (+https://github.com/SOSkr/baton)"
+
+
 # Priority is a CLOSED set, not free text — every tracker that has the concept ships
 # roughly these five, and a board that sorts by priority cannot sort by prose.
 PRIORITIES = ("urgent", "high", "medium", "low", "none")

@@ -20,8 +20,22 @@ from .base import BatonError
 _DEFAULT_TOKENS = {
     "github": {"agent": "GH_TOKEN", "admin": "GH_ADMIN_TOKEN"},
     "plane": {"agent": "PLANE_API_KEY", "admin": "PLANE_ADMIN_API_KEY"},
+    # Kanboard's application token is not per-user, so a project that does not split
+    # the roles points both at the same var — `doctor` says so when the split is
+    # decorative rather than pretending it is real.
+    "kanboard": {"agent": "KANBOARD_TOKEN", "admin": "KANBOARD_ADMIN_TOKEN"},
 }
-BACKENDS = ("plane",)
+BACKENDS = ("plane", "kanboard")
+
+# What each board needs in `target` before its config is worth writing. Lives here
+# next to the token names, for the same reason: it is per-provider knowledge that the
+# CLI needs BEFORE any adapter exists to ask. Kanboard has no workspace — it has a
+# project name — so this used to reject a perfectly good Kanboard config with Plane's
+# error message.
+_REQUIRED_TARGET = {
+    "plane": ("base_url", "workspace", "project"),
+    "kanboard": ("base_url", "project"),
+}
 ROLES = ("agent", "admin")
 
 # Which provider serves each adapter role. The value is the FILE NAME under
@@ -256,8 +270,11 @@ def write_config(board: str, target: dict, *, repo: str | None = None,
     after a half-failure.
     """
     p = (root or Path.cwd()) / ".baton" / "config.yaml"
-    if not (target.get("base_url") and target.get("workspace")):
-        raise BatonError(f"{board} needs --base-url and --workspace")
+    missing = [k for k in _REQUIRED_TARGET.get(board, ()) if not target.get(k)]
+    if missing:
+        flags = ", ".join("--" + ("board" if k == "project" else k.replace("_", "-"))
+                          for k in missing)
+        raise BatonError(f"{board} needs {flags}")
 
     raw = p.read_text() if p.is_file() else ""
     existing = (yaml.safe_load(raw) or {}) if raw else {}
