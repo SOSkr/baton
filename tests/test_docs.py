@@ -21,7 +21,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from baton.config import Config, load_file  # noqa: E402
+from baton.config import BACKENDS, Config, load_file  # noqa: E402
 
 EXAMPLE = ROOT / "docs" / "config.example.yaml"
 
@@ -45,7 +45,10 @@ def _config_keys() -> set[str]:
 def test_the_example_loads_as_a_real_config():
     """Not "is valid YAML" — is a config baton can actually run on."""
     cfg = load_file(EXAMPLE)
-    assert cfg.adapters["board"] == "plane"
+    # El backend del ejemplo no se fija acá: el ejemplo documenta varios y el que
+    # encabeza cambia con el que el proyecto usa. Lo que no puede cambiar es que
+    # sea uno que exista — un ejemplo con un backend inventado no carga.
+    assert cfg.adapters["board"] in BACKENDS
     assert cfg.code_repo == "acme/app"
     assert cfg.repo_for("engine") == "acme/app-engine"     # the multi-repo map works
     assert cfg.git["integration"] == "develop"
