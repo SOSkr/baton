@@ -97,11 +97,20 @@ class FakeKanboard:
     def m_getAllCategories(self, project_id):
         return [dict(c) for c in self.categories]
 
+    def _solo_admin(self, metodo):
+        # Kanboard reserva la administración de usuarios al admin: a una persona le
+        # contesta 403. Modelarlo es lo que hace que el fake pueda fallar donde falló
+        # la instancia real.
+        if self.como != "jsonrpc":
+            raise _Forbidden(f"kanboard {metodo} failed: Forbidden")
+
     def m_getAllUsers(self):
+        self._solo_admin("getAllUsers")
         return [dict(u) for u in self.usuarios]
 
     def m_getUserByName(self, username):
-        return next((u for u in self.m_getAllUsers() if u["username"] == username), False)
+        self._solo_admin("getUserByName")
+        return next((u for u in self.usuarios if u["username"] == username), False)
 
     def m_getAllLinks(self):
         return [{"id": 8, "label": "targets milestone"},
@@ -274,10 +283,39 @@ def test_a_persons_credential_is_the_comment_author():
     assert fake.comments[-1]["user_id"] == 2
 
 
-def test_an_explicit_user_still_wins_over_the_credential():
-    """`api_user` solo rellena lo que falta. Si alguien declaró a nombre de quién
-    comenta, esa decisión manda — es la única razón por la que la clave existe."""
-    b, fake = board(api_user="amigo")       # TARGET ya trae user: admin
+def test_a_person_resolves_their_own_id_without_admin_rights():
+    """`getUserByName` es solo de admin. Resolver el id de una persona por ahí pasaba
+    los tests y moría contra una cuenta real con 403 — el fake no lo modelaba."""
+    fake = FakeKanboard()
+    fake.como = "amigo"
+    fake.usuarios.append({"id": 2, "username": "amigo", "role": "app-user"})
+    b = KanboardBoard({"base_url": TARGET["base_url"], "project": TARGET["project"],
+                       "api_user": "amigo"}, token="t")
+    b._rpc = fake.rpc
+    b.comment("1", "hola")
+    assert fake.comments[-1]["user_id"] == 2
+    assert "getUserByName" not in [c for c, _ in fake.calls]
+    assert "getAllUsers" not in [c for c, _ in fake.calls]
+
+
+def test_a_person_cannot_comment_as_somebody_else():
+    """`user` y una credencial de persona que no coinciden no es un permiso que falte,
+    es una contradicción — y decirlo vence a un 403 de un método de administración que
+    esa persona nunca debió necesitar."""
+    b, _ = board(api_user="amigo")          # TARGET declara user: admin
+    try:
+        b.comment("1", "hola")
+    except BatonError as e:
+        assert "cannot comment as someone else" in str(e)
+        assert "amigo" in str(e) and "admin" in str(e)
+    else:
+        raise AssertionError("una contradicción de config tiene que nombrarse")
+
+
+def test_the_application_token_attributes_to_whoever_user_says():
+    """Con el token de aplicación sí hay libertad: el token no es nadie, así que
+    `user` es la única forma de saber a nombre de quién se comenta."""
+    b, fake = board()                       # api_user por defecto: jsonrpc
     b.comment("1", "hola")
     assert fake.comments[-1]["user_id"] == 1
 

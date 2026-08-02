@@ -185,10 +185,25 @@ class KanboardBoard(BoardBase):
         worse than asking.
         """
         if self._user_id is None:
-            # A person's credential IS the author. Asking for `user` as well would be
-            # the same name written twice, which is a config nobody keeps in sync.
-            if self.api_user != "jsonrpc" and not self.user_name:
-                self.user_name = self.api_user
+            # A person's credential IS the author, and `getMe` is how they can ask —
+            # `getUserByName` and `getAllUsers` are admin-only and answer a plain user
+            # with 403. Resolving a person's own id through an admin call worked in
+            # tests and failed against a real non-admin account, which is why the
+            # item's verification asked for one.
+            if self.api_user != "jsonrpc":
+                me = self._rpc("getMe") or {}
+                if self.user_name and self.user_name != me.get("username"):
+                    # No es un permiso que falte, es una contradicción: nadie comenta
+                    # a nombre de otro. Decirlo vence a un 403 crudo de un método de
+                    # administración que la persona nunca debió necesitar.
+                    raise BatonError(
+                        f"config.target.user is {self.user_name!r} but the credential "
+                        f"belongs to {me.get('username', self.api_user)!r}. A person "
+                        f"cannot comment as someone else — drop `user`, or use the "
+                        f"application token (api_user: jsonrpc) to attribute freely.")
+                if me.get("id"):
+                    self._user_id = int(me["id"])
+                    return self._user_id
             if self.user_name:
                 u = self._rpc("getUserByName", username=self.user_name)
                 if not u:
