@@ -457,6 +457,34 @@ def test_unknown_stage_lists_the_ones_that_exist():
         raise AssertionError("a bad stage name should say what the board has")
 
 
+def test_every_request_says_who_it_is():
+    """Sin User-Agent, urllib manda `Python-urllib/3.x` y un WAF lo corta con un 403
+    que no explica nada. Pasó de verdad: Cloudflare 1010 contra un board que andaba
+    perfecto desde el navegador."""
+    import urllib.request
+
+    from baton.base import user_agent
+
+    ua = user_agent()
+    assert ua.startswith("baton/") and "github.com" in ua
+
+    visto = {}
+    real = urllib.request.Request
+
+    def espia(url, data=None, **kw):
+        visto.update(kw.get("headers") or {})
+        raise RuntimeError("no sale a la red")
+
+    urllib.request.Request = espia
+    try:
+        KanboardBoard(TARGET, token="t")._rpc("getVersion")
+    except RuntimeError:
+        pass
+    finally:
+        urllib.request.Request = real
+    assert visto.get("User-Agent") == ua
+
+
 if __name__ == "__main__":
     ns = dict(globals())
     fns = [(n, f) for n, f in ns.items() if n.startswith("test_")]

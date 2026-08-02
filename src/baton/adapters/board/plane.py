@@ -26,7 +26,7 @@ import urllib.request
 
 from markdown_it import MarkdownIt
 
-from ...base import BatonError, Comment, Group, Item
+from ...base import BatonError, Comment, Group, Item, user_agent
 from .base import BoardBase
 
 _TAG = re.compile(r"<[^>]+>")
@@ -116,7 +116,8 @@ class PlaneBoard(BoardBase):
             url += "?" + urllib.parse.urlencode(params)
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method, headers={
-            "X-Api-Key": self.token, "Content-Type": "application/json"})
+            "X-Api-Key": self.token, "Content-Type": "application/json",
+            "User-Agent": user_agent()})
         try:
             with urllib.request.urlopen(req) as r:
                 out = r.read()

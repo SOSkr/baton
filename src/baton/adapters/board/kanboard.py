@@ -25,7 +25,7 @@ import os
 import urllib.error
 import urllib.request
 
-from ...base import BatonError, Comment, Group, Item
+from ...base import BatonError, Comment, Group, Item, user_agent
 from .base import BoardBase
 
 # baton's closed set <-> Kanboard's integer. Kanboard does not have priorities, it has
@@ -89,7 +89,8 @@ class KanboardBoard(BoardBase):
                               "method": method, "params": params}).encode()
         auth = base64.b64encode(f"jsonrpc:{self.token}".encode()).decode()
         req = urllib.request.Request(self.url, data=payload, method="POST", headers={
-            "Content-Type": "application/json", "Authorization": f"Basic {auth}"})
+            "Content-Type": "application/json", "Authorization": f"Basic {auth}",
+            "User-Agent": user_agent()})
         try:
             with urllib.request.urlopen(req) as r:
                 body = json.loads(r.read() or b"{}")

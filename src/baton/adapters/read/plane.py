@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from ...base import BatonError, Comment, Item
+from ...base import BatonError, Comment, Item, user_agent
 from .base import ReadBase
 
 _TAG = re.compile(r"<[^>]+>")
@@ -65,7 +65,8 @@ class PlaneRead(ReadBase):
         url = f"{self.base_url}/api/v1/workspaces/{path}"
         if params:
             url += "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(url, headers={"X-Api-Key": self.token})
+        req = urllib.request.Request(url, headers={"X-Api-Key": self.token,
+                                                   "User-Agent": user_agent()})
         try:
             with urllib.request.urlopen(req) as r:
                 out = r.read()
