@@ -9,3 +9,9 @@ dist/
 
 # capturas y volcados del navegador de Playwright, generados al depurar
 .playwright-mcp/
+
+# Artefactos que dejan las herramientas en la raíz. El de Playwright entró
+# una vez a un commit con un token adentro (PR #47): el token se rotó, y esto
+# es para que la próxima no dependa de que alguien mire el `git add -A`.
+.playwright-mcp/
+*token*.txt

@@ -20,8 +20,12 @@ from .base import BatonError
 _DEFAULT_TOKENS = {
     "github": {"agent": "GH_TOKEN", "admin": "GH_ADMIN_TOKEN"},
     "plane": {"agent": "PLANE_API_KEY", "admin": "PLANE_ADMIN_API_KEY"},
+    # Kanboard's application token is not per-user, so a project that does not split
+    # the roles points both at the same var — `doctor` says so when the split is
+    # decorative rather than pretending it is real.
+    "kanboard": {"agent": "KANBOARD_TOKEN", "admin": "KANBOARD_ADMIN_TOKEN"},
 }
-BACKENDS = ("plane",)
+BACKENDS = ("plane", "kanboard")
 ROLES = ("agent", "admin")
 
 # Which provider serves each adapter role. The value is the FILE NAME under
