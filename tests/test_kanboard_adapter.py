@@ -29,6 +29,10 @@ from baton.base import BatonError  # noqa: E402
 TARGET = {"base_url": "https://board.acme.test", "project": "acme", "user": "admin"}
 
 
+class _Forbidden(BatonError):
+    """Lo que `_rpc` levanta cuando Kanboard contesta un error."""
+
+
 class FakeKanboard:
     def __init__(self):
         self.columns = [
@@ -45,6 +49,8 @@ class FakeKanboard:
         self.project = {"id": 1, "name": "acme", "identifier": "",
                         "priority_start": 0, "priority_end": 3}
         self.calls = []
+        self.como = "jsonrpc"     # con quién autenticó el adapter
+        self.usuarios = [{"id": 1, "username": "admin", "role": "app-admin"}]
         self._n = 0
         self.add_task("uno", column_id=1, priority=3, tags=["type:bug", "area:cli"])
 
@@ -72,6 +78,13 @@ class FakeKanboard:
     def m_getVersion(self):
         return "v1.2.53"
 
+    def m_getMe(self):
+        # El token de aplicación NO es un usuario: Kanboard lo rechaza con 403.
+        # Esa negativa es lo que deja distinguir una credencial de la otra.
+        if self.como == "jsonrpc":
+            raise _Forbidden("kanboard getMe failed: Forbidden")
+        return {"id": 2, "username": self.como}
+
     def m_getProjectByName(self, name):
         return dict(self.project) if name == self.project["name"] else False
 
@@ -85,7 +98,7 @@ class FakeKanboard:
         return [dict(c) for c in self.categories]
 
     def m_getAllUsers(self):
-        return [{"id": 1, "username": "admin", "role": "app-admin"}]
+        return [dict(u) for u in self.usuarios]
 
     def m_getUserByName(self, username):
         return next((u for u in self.m_getAllUsers() if u["username"] == username), False)
@@ -197,9 +210,11 @@ class FakeKanboard:
         return len(self.columns) < before
 
 
-def board(fake=None):
+def board(fake=None, **target):
     fake = fake or FakeKanboard()
-    b = KanboardBoard(TARGET, token="fake-token")
+    if target.get("api_user"):
+        fake.como = target["api_user"]
+    b = KanboardBoard({**TARGET, **target}, token="fake-token")
     b._rpc = fake.rpc
     return b, fake
 
@@ -208,6 +223,63 @@ def board(fake=None):
 def test_probe_names_the_project():
     b, _ = board()
     assert "acme" in b.probe()
+
+
+def test_probe_says_whose_credential_it_is():
+    """Con dos clases de credencial, "el board contesta" es media respuesta: quien
+    tiene el token de aplicación administra TODA la instancia, y eso tiene que verse
+    en `doctor` y no deducirse de un config que nadie relee."""
+    admin, _ = board()
+    assert "application token" in admin.probe() and "admin" in admin.probe()
+
+    persona, _ = board(api_user="amigo")
+    dicho = persona.probe()
+    assert "amigo" in dicho and "application token" not in dicho
+
+
+def test_the_credential_owner_is_the_basic_auth_user():
+    """El header es lo único que Kanboard mira para saber quién sos."""
+    import base64
+    import urllib.request
+
+    visto = {}
+    real = urllib.request.Request
+
+    def espia(url, data=None, **kw):
+        visto.update(kw.get("headers") or {})
+        raise RuntimeError("no sale a la red")
+
+    for api_user, esperado in (("jsonrpc", "jsonrpc:t"), ("amigo", "amigo:t")):
+        urllib.request.Request = espia
+        try:
+            KanboardBoard({**TARGET, "api_user": api_user}, token="t")._rpc("getVersion")
+        except RuntimeError:
+            pass
+        finally:
+            urllib.request.Request = real
+        crudo = base64.b64decode(visto["Authorization"].split()[1]).decode()
+        assert crudo == esperado, f"{api_user}: mandó {crudo!r}"
+
+
+def test_a_persons_credential_is_the_comment_author():
+    """Sin esto, el config de una persona repite su nombre en `api_user` y en `user`
+    — dos claves que hay que mantener iguales, o sea una que se va a desincronizar."""
+    fake = FakeKanboard()
+    fake.como = "amigo"
+    fake.usuarios.append({"id": 2, "username": "amigo", "role": "app-user"})
+    b = KanboardBoard({"base_url": TARGET["base_url"], "project": TARGET["project"],
+                       "api_user": "amigo"}, token="t")     # SIN `user:`
+    b._rpc = fake.rpc
+    b.comment("1", "hola")
+    assert fake.comments[-1]["user_id"] == 2
+
+
+def test_an_explicit_user_still_wins_over_the_credential():
+    """`api_user` solo rellena lo que falta. Si alguien declaró a nombre de quién
+    comenta, esa decisión manda — es la única razón por la que la clave existe."""
+    b, fake = board(api_user="amigo")       # TARGET ya trae user: admin
+    b.comment("1", "hola")
+    assert fake.comments[-1]["user_id"] == 1
 
 
 def test_probe_fails_when_the_project_is_not_there():
