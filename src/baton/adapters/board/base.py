@@ -69,7 +69,20 @@ class BoardBase(ABC):
 
     @abstractmethod
     def close(self, item_id: str, reason: str = "") -> None:
-        ...
+        """Mark the item closed. **Do NOT move it to a stage.**
+
+        Use whatever the backend has for "this is closed" — a flag, a native call —
+        and leave the column where it is. Choosing a stage here is not a shortcut, it
+        is a bug with a track record: an adapter that picked "the first state in a
+        closed group" sent *rejected* items to **Deployed**, because that is the order
+        the backend happened to list them in.
+
+        The caller names the stage, always, and both callers do: `baton-ship` advances
+        to the ship stage first, `baton-reject` to the cancel stage. What varies per
+        project lives in `config.stages`, which this layer never sees — which is the
+        other half of the reason: an adapter that wanted to resolve the right stage by
+        name could not, it has `target` and a token and nothing else.
+        """
 
     # ---- creation (bootstrap) ----
     # A board is created ONCE, by `baton bootstrap`, with the admin credential. These
