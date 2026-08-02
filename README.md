@@ -7,15 +7,85 @@ items through your board's stages (triage → approve → start → verify → s
 the CLI or from your agent's own skills, without hardcoding a single
 project/field/option ID.
 
-Three things swap independently: the **board** (Plane today), the **code host**
+Three things swap independently: the **board** (Kanboard or Plane), the **code host**
 (GitHub today), and the **agent** (Claude Code and OpenCode today). Each is an
 adapter or a symlink — never a rewrite.
+
+New here? **[Getting started](#getting-started)** goes from nothing to a green
+`baton doctor`.
+
+## Getting started
+
+From nothing to a green `baton doctor`. This walks a **Kanboard** board and a GitHub
+repo, which is the pair the project runs on; Plane differs only in `target` and the
+credential name.
+
+**1. Install**
+
+```bash
+pipx install baton-board          # the command it installs is `baton`
+```
+
+`gh` also has to be installed and authenticated — baton drives GitHub through it.
+
+**2. Get the two credentials**
+
+| | Where | Export as |
+|---|---|---|
+| Board | Kanboard → *Settings → API → API token* | `KANBOARD_TOKEN` |
+| Code | GitHub → a token with `repo` scope | `GH_TOKEN` |
+
+Tokens live in your environment, never in `config.yaml`. The file holds env var
+**names** only, so a project can point a role at a different variable.
+
+**3. Point baton at them**
+
+```bash
+cd your-repo
+baton bootstrap --board "Your Board" --base-url https://board.example.com \
+                --repo owner/repo --check ci
+```
+
+Three things to know about that command, because each one is a wall the first time:
+
+- **`--check` is not optional** — pass the name of the CI check that must pass before a
+  PR can merge, or `--no-checks` to say you deliberately want none. baton refuses to
+  guess: a protection with no required check lets a red PR merge, and one naming a
+  check that does not exist makes every PR **hang** waiting for a status that never
+  arrives. Use ONE aggregated name, never a matrix job like `test (3.11)`.
+- **It is idempotent, and it looks before it creates.** If the board and repo already
+  exist — someone added you to a board, which is the common case — it finds them,
+  writes the config, and reports `existed` instead of making a second one. Re-run it
+  after a half-failure; that is the resume command.
+- **It needs the admin credential** to set branch protections. Without one it does the
+  rest and tells you what it skipped, rather than pretending.
+
+**4. Check it, before trusting it**
+
+```bash
+baton doctor
+```
+
+This is the acceptance test for everything above. It does not stop at "the variable is
+set" — it makes one real read per credential against every system, and keeps going
+after a failure so you see all of them at once.
+
+**5. Wire your agent**
+
+```bash
+git clone https://github.com/SOSkr/baton /tmp/baton
+ln -sf /tmp/baton/skills/baton-* ~/.claude/skills/
+```
+
+See [Setup for AI agents](#setup-for-ai-agents) for OpenCode and the optional hooks.
+
+Then: `baton new`, or ask your agent for the `baton-new` skill.
 
 ## How it works
 
 Two layers:
 - **CLI `baton`** (this repo) — the mechanical ops: create/move/comment/close/list.
-  A backend **adapter** (`plane`, ...) + **discovery** resolves IDs by name.
+  A backend **adapter** (`kanboard`, `plane`) + **discovery** resolves IDs by name.
 - **Skills** (`skills/`) — the judgment (triage scoring, priority, gates); they call `baton`.
 
 The split is what makes both axes swappable. Skills hold no ids and no API calls, so a
@@ -33,7 +103,7 @@ baton/
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
 │   └── adapters/          # three roles — see docs/adapters/
 │       ├── registry.py    # name -> class by file name; the only importer of a provider
-│       ├── board/         # read-WRITE: where item state lives (plane.py)
+│       ├── board/         # read-WRITE: where item state lives (kanboard.py, plane.py)
 │       ├── read/          # read-ONLY: old trackers, read once to migrate off (github_projects.py)
 │       └── repo/          # the code host: permissions, branches, PRs (github.py)
 ├── docs/                  # adapters/ (how to write each family) · git-flow.md · design/
@@ -63,10 +133,10 @@ symlinking `skills/baton-*` (see [Setup for AI agents](#setup-for-ai-agents)).
 | [`baton-start`](skills/baton-start/SKILL.md) | Start implementation of an approved item: advance to In Progress, create the feature branch, drive it to Done/Shipped. |
 | [`baton-verify`](skills/baton-verify/SKILL.md) | Validate a PR against its item: acceptance criteria met, Verification run, nothing touched that was out of scope. Reviews, never approves. |
 | [`baton-ship`](skills/baton-ship/SKILL.md) | Take the integration branch to production and close the items that went out — PR, checks, merge, deploy verification. |
-| [`baton-reject`](skills/baton-reject/SKILL.md) | Reject a work-item: close it with a reason comment. |
+| [`baton-reject`](skills/baton-reject/SKILL.md) | Reject a work-item: move it to the cancel stage and close it, with the reason recorded. |
 | [`baton-catch-up`](skills/baton-catch-up/SKILL.md) | Recover what already happened — on an item, or in another project you own — before asking anyone. |
 | [`baton-bootstrap`](skills/baton-bootstrap/SKILL.md) | Step zero: create the repo, the board, its stages, protections and label axes, then wire baton to it. **Admin credential.** |
-| [`baton-migrate`](skills/baton-migrate/SKILL.md) | Move an old GitHub Projects board onto the current one — items, stages, and the comment trail. |
+| [`baton-migrate`](skills/baton-migrate/SKILL.md) | Move an old board onto the current one — items, stages, and the comment trail. The source is any provider under `adapters/read/`. |
 
 ## Config
 
@@ -74,13 +144,27 @@ Per-project `.baton/config.yaml` (walked up from cwd). The required half:
 
 ```yaml
 adapters:                          # which provider serves each role
-  board: plane                     # `backend: plane` is the older spelling, still read
-target:
-  base_url: https://plane.acme.com # plane: instance URL
-  workspace: acme                  # plane: workspace slug
-  project: APP                     # plane: project identifier — the APP in APP-123
+  board: kanboard                  # `backend:` is the older spelling of this key
+target:                            # THE KEYS DEPEND ON THE BOARD — see below
+  base_url: https://board.acme.com # kanboard: instance URL, no /jsonrpc.php
+  project: APP                     # kanboard: the project's NAME
+  user: admin                      # kanboard: who comments are attributed to
 repo: acme/app                     # where the CODE lives; the board knows no git
 ```
+
+`target` is the one block that is not the same for everyone, because a board's
+coordinates are a board's business:
+
+| Key | `kanboard` | `plane` |
+|---|---|---|
+| `base_url` | instance URL, without `/jsonrpc.php` | instance URL |
+| `project` | the project's **name**, as the board shows it | the identifier — the `APP` in `APP-123` |
+| `workspace` | — *(Kanboard has none)* | workspace slug |
+| `user` | who comments are attributed to | — *(the API key is a user)* |
+
+`user` is optional while the board has exactly one admin and required past that: the
+application token is not a user, so Kanboard cannot infer an author — and guessing one
+is worse than asking.
 
 Everything else (project id, Status field id, stage option ids) is **discovered** — no
 ids in this file, ever, which is why it is five lines instead of a pile of UUIDs.
@@ -125,10 +209,14 @@ Two roles, because the thing that writes code should not be the thing that appro
 the same separation Dependabot and Renovate rely on (GitHub does not let a PR author
 approve their own PR).
 
-| Role | Does | Board (plane) | Code host (github) |
-|---|---|---|---|
-| `agent` | items, comments, stages, branches, PRs — **everything in the normal lifecycle** | `PLANE_API_KEY` | `GH_TOKEN` |
-| `admin` | create and administer projects, set protections, merge releases | `PLANE_ADMIN_API_KEY` | `GH_ADMIN_TOKEN` |
+| Role | Does | Board (`kanboard`) | Board (`plane`) | Code host (github) |
+|---|---|---|---|---|
+| `agent` | items, comments, stages, branches, PRs — **everything in the normal lifecycle** | `KANBOARD_TOKEN` | `PLANE_API_KEY` | `GH_TOKEN` |
+| `admin` | create and administer projects, set protections, merge releases | `KANBOARD_ADMIN_TOKEN` | `PLANE_ADMIN_API_KEY` | `GH_ADMIN_TOKEN` |
+
+**Where the Kanboard token comes from:** *Settings → API → API token*. It authenticates
+as HTTP Basic with the literal username `jsonrpc` — that is Kanboard's convention for
+the application token, not a user you have to create.
 
 The board and the code host are two systems with two credentials each — `doctor` checks all four.
 
@@ -141,8 +229,12 @@ say so, and `doctor` then reports the split as decorative instead of letting you
 it is protecting something:
 
 ```yaml
-tokens: {agent: PLANE_API_KEY, admin: PLANE_API_KEY}
+tokens: {agent: KANBOARD_TOKEN, admin: KANBOARD_TOKEN}
 ```
+
+On **Kanboard** that is not a shortcut, it is the truth: there is one application
+token, not one per user, so the split cannot be real there and saying so beats
+pretending.
 
 Worth knowing for Plane specifically: an API key inherits the role of the **user** who
 created it, so two keys from one account have identical power — the split there is real
