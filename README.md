@@ -160,11 +160,24 @@ coordinates are a board's business:
 | `base_url` | instance URL, without `/jsonrpc.php` | instance URL |
 | `project` | the project's **name**, as the board shows it | the identifier — the `APP` in `APP-123` |
 | `workspace` | — *(Kanboard has none)* | workspace slug |
-| `user` | who comments are attributed to | — *(the API key is a user)* |
+| `api_user` | whose credential `$KANBOARD_TOKEN` is | — *(the API key is a user)* |
+| `user` | who comments are attributed to | — |
 
-`user` is optional while the board has exactly one admin and required past that: the
-application token is not a user, so Kanboard cannot infer an author — and guessing one
-is worse than asking.
+**`api_user` decides how much access baton has.** Kanboard takes two kinds of
+credential and the username is what tells them apart:
+
+| `api_user` | `$KANBOARD_TOKEN` is | Reaches |
+|---|---|---|
+| `jsonrpc` *(default)* | the **application** token, *Settings → API* | every project on the instance, as admin |
+| a person's username | **their** token, from their profile → API | what that person can see, nothing more |
+
+Adding a second person to a board should use the second form. Sharing the application
+token to give someone access hands them administration of everything, and it is a
+shared secret: rotating it breaks for everyone at once.
+
+`user` names who comments are attributed to, because the application token is not a
+user and Kanboard cannot infer an author. Skip it when `api_user` is a person — that
+person *is* the author. `baton doctor` reports which credential it authenticated with.
 
 Everything else (project id, Status field id, stage option ids) is **discovered** — no
 ids in this file, ever, which is why it is five lines instead of a pile of UUIDs.
