@@ -141,3 +141,26 @@ if __name__ == "__main__":
     test_gitignore_patterns_carry_no_trailing_comment()
     test_the_dogfooding_config_is_ignored()
     print("ok — the docs match the code")
+
+
+def test_reject_names_its_stage_before_closing():
+    """`close` does not move an item, on purpose (see BoardBase.close). A reject that
+    only closes leaves the item sitting in the intake column reading as open work —
+    and an adapter that "helpfully" picked a stage once sent rejected items to
+    Deployed. The skill and its command must both spell the two steps out."""
+    skill = (ROOT / "skills" / "baton-reject" / "SKILL.md").read_text()
+    assert "--to @cancel" in skill, "baton-reject must advance to the cancel stage"
+    assert skill.index("--to @cancel") < skill.index("baton close"), \
+        "the advance goes BEFORE the close"
+
+    command = (ROOT / "commands" / "baton-reject.md").read_text()
+    assert "--to @cancel" in command, "the slash command must say it too"
+
+
+def test_the_close_contract_says_it_does_not_move_the_item():
+    """The rule lives on the interface, where whoever writes the next adapter reads
+    it — not only in the skill that happens to call it."""
+    base = (ROOT / "src" / "baton" / "adapters" / "board" / "base.py").read_text()
+    close_doc = base.split("def close(")[1].split("# ---- creation")[0]
+    assert "do NOT move" in close_doc.lower() or "not move it" in close_doc.lower(), \
+        "BoardBase.close must state that closing never picks a stage"
