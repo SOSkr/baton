@@ -199,6 +199,13 @@ def _print_bootstrap(rep: dict) -> int:
             bad |= ("missing" in state) or ("did NOT land" in state)
 
     bd = rep.get("board", {})
+    if bd.get("failed"):
+        # Loud, and the exit code goes non-zero below: everything above it DID happen,
+        # and the whole point of reporting instead of raising is that you can see both.
+        print(f"board: FAILED — {bd['failed']}")
+        print("  the repo side above is done. Create the board project by hand and "
+              "re-run this — it adopts what exists.")
+        return 1
     print(f"board {bd.get('identifier') or bd.get('project', {}).get('identifier')}: "
           f"{'created' if bd.get('created') else bd.get('state', 'existed')}")
     if bd.get("default"):

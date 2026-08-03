@@ -212,13 +212,28 @@ class Baton:
                 ad, [integration, production], checks=checks, reviews=reviews,
                 enforce_admins=enforce_admins)
 
-        # --- board side. Creation is an admin act on this side too, and here a missing
-        # admin credential is a hard stop (config.resolve_token), which is correct: a
-        # board created by the agent token is a board the agent can reconfigure.
-        bd = _board.get(cfg, "admin")
-        board_report = _board.ensure(bd, project_name or cfg.target.get("project") or "",
-                                     _board.wanted_stages(cfg),
-                                     default=_board.verb_stage(cfg, "triage"))
+        # --- board side. It runs LAST, and that is why it reports instead of raising:
+        # by the time it fails, the repo exists, the branch was cut and the protections
+        # were applied. An exception here takes the report of all that with it, and
+        # whoever ran the command is left not knowing what happened — recoverable only
+        # if they already know `bootstrap` is idempotent.
+        #
+        # The failure is not hypothetical: a board credential that cannot create a
+        # project answers 403, and whether it can is the BOARD's decision about its
+        # user, not something baton can arrange. When that happens the project is
+        # created by hand and this command adopts it on the next run.
+        #
+        # Same treatment the protections already get when the credential lacks admin:
+        # say what could not be done, and let the rest of the report through.
+        bd = _board.get(cfg)
+        try:
+            board_report = _board.ensure(bd, project_name or cfg.target.get("project") or "",
+                                         _board.wanted_stages(cfg),
+                                         default=_board.verb_stage(cfg, "triage"))
+        except BatonError as e:
+            report["board"] = {"failed": str(e), "project": None, "created": False,
+                               "stages": {}, "extra": []}
+            return report
         if board_report["created"]:
             ident = board_report["project"].get("identifier")
             report["created"].append(f"board project {ident}")
