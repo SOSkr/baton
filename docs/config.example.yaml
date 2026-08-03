@@ -60,6 +60,16 @@ repo: acme/app         # where the CODE lives. The board knows nothing about git
 git:                   # branch names. Trunk-based? Point both at the same one
   integration: develop
   production: master
+  release: release     # HOW this project's deployment is set off — `baton release`
+                       # does this and nothing else:
+                       #   release  CI fires on a published Release (a package):
+                       #            baton CREATES it
+                       #   tag      CI fires on a pushed tag: baton PUSHES it
+                       #   none     merging already deployed: baton creates nothing
+                       # Not detected from your workflows on purpose. Guess wrong and
+                       # nothing objects — a Release where the CI waits for a tag sets
+                       # off nothing — so `baton release` refuses without this, and
+                       # `doctor` prints it next to what your CI really declares.
 
 visibility: private    # `baton bootstrap` only: what a repo it CREATES is created as
 

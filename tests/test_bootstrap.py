@@ -484,3 +484,105 @@ def test_bootstrap_does_not_reset_the_backend_of_a_configured_project():
         assert _bootstrap_config(ns)["board"] == "kanboard"
     finally:
         cli.find_config, cli.load = orig_find, orig_load
+
+
+# ---------------------------------------------------------------- releasing (BATON-40)
+
+class FakeReleasing(FakeRepo):
+    """Un host que sí sabe publicar. Guarda lo que le pidieron para poder afirmar que
+    NO hizo lo que no correspondía — que es la mitad del item: un release creado donde
+    el CI espera un tag no dispara nada."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.releases, self.tags, self.runs = {}, [], {}
+        self.branches["master"] = "sha-master"
+
+    def release_triggers(self): return {"release"}
+    def release_exists(self, tag): return tag in self.releases
+
+    def create_release(self, tag, *, target, title, notes):
+        self.releases[tag] = {"target": target, "title": title, "notes": notes}
+        return f"https://example/{tag}"
+
+    def create_tag(self, tag, *, target): self.tags.append((tag, target))
+    def deploy_runs(self, tag): return dict(self.runs)
+
+
+def _cfg(release=None):
+    from baton.config import Config
+    git = {"integration": "develop", "production": "master"}
+    if release:
+        git["release"] = release
+    return Config(backend="plane", repo="acme/app", git=git)
+
+
+def test_shipping_refuses_to_guess_how_this_project_releases():
+    """El mismo criterio que `--check` en bootstrap: donde equivocarse no se nota, se
+    pregunta. Un release creado en un repo cuyo CI dispara por tag no publica nada, y
+    el error llega por boca de un usuario."""
+    from baton.adapters.repo import release_mode
+
+    try:
+        release_mode(_cfg())
+    except BatonError as e:
+        assert "cannot guess" in str(e)
+        assert "release" in str(e) and "tag" in str(e) and "none" in str(e)
+    else:
+        raise AssertionError("sin git.release, shipear tiene que negarse")
+
+
+def test_each_mode_does_its_own_thing_and_only_its_own():
+    from baton.adapters.repo import release
+
+    ad = FakeReleasing("acme/app")
+    assert "published release" in release(ad, _cfg("release"), "v1.0.0",
+                                          title="t", notes="n")["did"]
+    assert list(ad.releases) == ["v1.0.0"] and ad.tags == []
+
+    ad = FakeReleasing("acme/app")
+    assert "pushed tag" in release(ad, _cfg("tag"), "v1.0.0", title="t", notes="n")["did"]
+    assert ad.tags == [("v1.0.0", "master")] and ad.releases == {}
+
+    ad = FakeReleasing("acme/app")
+    assert "nothing" in release(ad, _cfg("none"), "v1.0.0", title="t", notes="n")["did"]
+    assert ad.tags == [] and ad.releases == {}
+
+
+def test_a_release_that_already_exists_is_reported_not_duplicated():
+    """El primer intento puede haber muerto DESPUÉS de crearlo. Un ship que no se
+    puede re-correr es un ship que nadie re-corre."""
+    from baton.adapters.repo import release
+
+    ad = FakeReleasing("acme/app")
+    release(ad, _cfg("release"), "v1.0.0", title="t", notes="n")
+    rep = release(ad, _cfg("release"), "v1.0.0", title="t", notes="n")
+    assert "already existed" in rep["did"]
+    assert len(ad.releases) == 1
+
+
+def test_a_deploy_still_running_is_not_a_deploy_that_worked():
+    """"No terminó" no es "terminó bien". Cerrar items sobre cualquiera de los dos es
+    lo que hizo que un release pareciera hecho con PyPI sirviendo la versión anterior."""
+    from baton.adapters.repo import deploy_verdict
+
+    ad = FakeReleasing("acme/app")
+    ad.runs = {"publish": "in_progress"}
+    assert deploy_verdict(ad, _cfg("release"), "v1.0.0")[0] is False
+
+    ad.runs = {"publish": "failure"}
+    assert deploy_verdict(ad, _cfg("release"), "v1.0.0")[0] is False
+
+    ad.runs = {}
+    assert deploy_verdict(ad, _cfg("release"), "v1.0.0")[0] is False, \
+        "ningún run todavía tampoco es éxito"
+
+    ad.runs = {"publish": "success"}
+    assert deploy_verdict(ad, _cfg("release"), "v1.0.0")[0] is True
+
+
+def test_with_no_deployment_there_is_nothing_to_verify():
+    from baton.adapters.repo import deploy_verdict
+
+    ok, runs = deploy_verdict(FakeReleasing("acme/app"), _cfg("none"), "v1.0.0")
+    assert ok is True and runs == {}

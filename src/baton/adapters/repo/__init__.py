@@ -24,6 +24,72 @@ def get(cfg: Config | None = None, repo: str | None = None,
     return registry.resolve("repo", provider)(name, os.environ.get(github_token_env(role)))
 
 
+# What `git.release` may say. The project declares how its deployment is set off,
+# because no single command can guess it without being wrong on the other two:
+#
+#   release  the CI fires on a published release  -> ship CREATES it
+#   tag      the CI fires on a pushed tag         -> ship PUSHES it
+#   none     the merge already deployed           -> ship creates nothing
+#
+# Not detected from the workflows, on purpose. `doctor` compares the two and warns —
+# but deciding from a guess is how you end up believing you published and finding out
+# from a user. The same reason `bootstrap` refuses to guess a required check.
+RELEASE_MODES = ("release", "tag", "none")
+
+
+def release_mode(cfg: Config) -> str:
+    """How this project's deployment is set off. Refuses to guess."""
+    mode = (cfg.git or {}).get("release")
+    if mode in RELEASE_MODES:
+        return mode
+    raise BatonError(
+        "config.git.release is not set, and shipping cannot guess it:\n"
+        "  release   your CI fires on a published GitHub Release (a package)\n"
+        "  tag       your CI fires on a pushed tag\n"
+        "  none      merging to production already deployed\n"
+        "Pick the one your CI actually declares — `baton doctor` shows what it does."
+        + (f"\nGot {mode!r}." if mode else ""))
+
+
+def release(ad: RepoBase, cfg: Config, tag: str, *, title: str, notes: str) -> dict:
+    """Set the deployment off, whatever "off" means here. Returns what happened.
+
+    Creating the release or the tag belongs to the host — GitLab will do it its own
+    way — but WHICH of the three to do is the same everywhere, so it is decided here
+    and not in an adapter.
+
+    Idempotent where it can be: a release that already exists is reported, not
+    duplicated and not an error. The first attempt may have died after creating it,
+    and a ship that cannot be re-run is a ship nobody re-runs.
+    """
+    mode = release_mode(cfg)
+    target = cfg.git["production"]
+    if mode == "none":
+        return {"mode": mode, "did": "nothing — merging already deployed"}
+    if mode == "tag":
+        ad.create_tag(tag, target=target)
+        return {"mode": mode, "did": f"pushed tag {tag}"}
+    if ad.release_exists(tag):
+        return {"mode": mode, "did": f"release {tag} already existed"}
+    url = ad.create_release(tag, target=target, title=title, notes=notes)
+    return {"mode": mode, "did": f"published release {tag}", "url": url}
+
+
+def deploy_verdict(ad: RepoBase, cfg: Config, tag: str) -> tuple[bool, dict[str, str]]:
+    """Did the deployment this ship set off actually work?
+
+    Returns (ok, runs). `ok` is False while anything is still running, too: "not
+    finished" is not "finished well", and closing items on either is what made a
+    release look done while PyPI still served the previous version.
+    """
+    if release_mode(cfg) == "none":
+        return True, {}
+    runs = ad.deploy_runs(tag)
+    if not runs:
+        return False, runs
+    return all(v == "success" for v in runs.values()), runs
+
+
 def ensure(ad: RepoBase, visibility: str = "private") -> tuple[dict, bool]:
     """The repo, and whether THIS call created it. Looks first, always.
 

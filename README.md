@@ -198,7 +198,10 @@ Notable ones: `stages` maps baton's lifecycle vocabulary to **what this board ca
 each column** (and declaring `stages.verify` **gates** it) · `repos` maps an `area:`
 label to a repo for multi-repo projects · `tokens` holds env var NAMES, never
 credentials · `git` names your branches, explained in
-[docs/git-flow.md](docs/git-flow.md).
+[docs/git-flow.md](docs/git-flow.md), and declares **how your deployment is set
+off** (`git.release`: `release` · `tag` · `none`) — `baton release` does that and
+verifies it ran, and refuses to guess, because a Release created where the CI waits
+for a tag sets off nothing and says so to nobody.
 
 ### Stage names live in one place
 

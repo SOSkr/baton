@@ -11,7 +11,10 @@ import json
 import os
 import sys
 
+from pathlib import Path
+
 from . import __version__, version
+from .adapters import repo as _repo
 from .base import PRIORITIES, BatonError, Item
 from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, credential_sources,
                      find_config, github_token_env, load, load_project,
@@ -342,6 +345,55 @@ def cmd_export(a, b, cfg):
     return 0
 
 
+def cmd_release(a, b, cfg):
+    """Set the deployment off, and then say whether it worked.
+
+    Separate from `baton ship`, which moves ONE item: a release is one act for the
+    whole batch. The skill runs this once, then ships the items it covered — and only
+    if this said the deployment succeeded.
+    """
+    tag = a.tag or _tag_from_project()
+    mode = _repo.release_mode(cfg)
+    ad = b.repo()
+
+    if not a.check:
+        notes = a.notes if a.notes is not None else (
+            sys.stdin.read() if not sys.stdin.isatty() else "")
+        rep = _repo.release(ad, cfg, tag, title=a.title or tag, notes=notes)
+        print(f"{rep['mode']}: {rep['did']}" + (f"\n{rep['url']}" if rep.get("url") else ""))
+
+    ok, runs = _repo.deploy_verdict(ad, cfg, tag)
+    for name, verdict in sorted(runs.items()):
+        print(f"  {name}: {verdict}")
+    if ok:
+        print(f"deploy verified for {tag}" if mode != "none"
+              else "nothing to verify — merging already deployed")
+        return 0
+    # Loud, and non-zero: the failure this whole verb exists for is a release that
+    # looked done. `baton-ship` must not close a single item past this line.
+    print(f"\nDEPLOY NOT VERIFIED for {tag}."
+          + ("  No run has started yet — re-run this to check again."
+             if not runs else "  Do NOT close the items."), file=sys.stderr)
+    return 1
+
+
+def _tag_from_project() -> str:
+    """`v` + the version in pyproject.toml.
+
+    Only pyproject: baton is not going to grow a detector for every ecosystem's idea
+    of where a version lives. Where it cannot know, it asks — the same rule this item
+    applies one level up. A guessed tag on a package is worse than one typed by hand,
+    which is why `publish.yml` aborts when the tag and the version disagree.
+    """
+    v = version.from_source(Path.cwd() / "x")
+    if not v:
+        raise BatonError(
+            "no pyproject.toml here, so the tag cannot be derived — pass --tag vX.Y.Z.\n"
+            "It is not guessed on purpose: a wrong tag on a published package cannot "
+            "be taken back.")
+    return f"v{v}"
+
+
 def cmd_config(a, b, cfg):
     """Print one config value by dotted path — `baton config git.integration`.
 
@@ -430,6 +482,25 @@ def cmd_doctor(a, b, cfg):
                   " PR, the review and CI entirely.")
             print("    Fix: baton bootstrap --check <your CI check>   (idempotent; "
                   "protects every repo the config declares)")
+
+    # How this project releases, checked against what its CI actually declares. Not
+    # used to decide anything — `git.release` decides — but a config that says `tag`
+    # on a repo whose only workflow fires on `release` is a ship that will report
+    # success and publish nothing.
+    if cfg.all_repos:
+        declared = (cfg.git or {}).get("release")
+        print(f"release mode: {declared or 'NOT SET — `baton release` will refuse'}")
+        if not declared:
+            print("  set git.release to one of: release · tag · none")
+            ok = False
+        try:
+            fires = b.repo().release_triggers()
+            if fires and declared and declared not in fires:
+                print(f"  ^ but this repo's CI fires on {', '.join(sorted(fires))}"
+                      f" — a release created as {declared!r} would set off nothing")
+                ok = False
+        except BatonError:
+            pass                  # unreachable host: already reported above
 
     try:
         stages = b.board.list_stages()
@@ -623,6 +694,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--owner", help="project owner login (default: repo owner)")
     s.add_argument("--state", default="all", choices=["open", "closed", "all"])
     s.set_defaults(fn=cmd_export)
+
+    s = sub.add_parser("release", help="set the deployment off the way this project "
+                                       "does it, then verify it ran")
+    s.add_argument("--tag", help="default: v + the version in pyproject.toml")
+    s.add_argument("--title", help="default: the tag")
+    s.add_argument("--notes", help="release body; omit to read stdin")
+    s.add_argument("--check", action="store_true",
+                   help="do not create anything — just report the deploy verdict")
+    s.set_defaults(fn=cmd_release)
 
     s = sub.add_parser("config", help="print one config value by dotted path")
     s.add_argument("key", metavar="KEY", help="e.g. git.integration, target.repo")
