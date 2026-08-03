@@ -63,6 +63,28 @@ def resolve_stage(cfg: Config, value: str) -> str:
     return verb_stage(cfg, verb)
 
 
+def refuse_group(ad: BoardBase, item_id: str, verb: str) -> None:
+    """Stop a work-item verb from acting on a deliverable.
+
+    On a backend where an epic is a task, the two share an id space and every verb
+    accepts either. That is not theoretical: on 2026-08-02 a typo'd id ran the whole
+    lifecycle over an epic — approved it, shipped it, closed it and filed it inside
+    the other one — and **all seven commands reported success**. The damage was
+    repaired by hand; nothing in baton had objected.
+
+    Here and not in a provider: any backend that models grouping with the same object
+    as the work has this problem, so repeating the check per adapter would be writing
+    the same rule as many times as there are boards.
+    """
+    if not ad.is_group(item_id):
+        return
+    name = next((g.name for g in ad.list_groups() if str(g.id) == str(item_id)), item_id)
+    raise BatonError(
+        f"#{item_id} is an epic ({name!r}), not an item — `{verb}` does not apply.\n"
+        f"  baton groups                     the roadmap: every epic, date, progress\n"
+        f"  baton list --group {name!r}   what is inside this one")
+
+
 def groups(ad: BoardBase, cfg: Config) -> list[Group]:
     """The roadmap, with progress that counts DELIVERED work.
 

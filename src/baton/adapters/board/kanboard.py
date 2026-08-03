@@ -311,6 +311,15 @@ class KanboardBoard(BoardBase):
         rows = self._rpc("getAllTaskLinks", task_id=int(epic_id)) or []
         return [r for r in rows if r.get("label") == _LINK_FROM_EPIC]
 
+    def is_group(self, item_id: str) -> bool:
+        """One `getTask`: the category is already on the task. The default would walk
+        every epic and its links to answer the same question."""
+        cid = self._epic_category()
+        if cid is None:
+            return False
+        t = self._rpc("getTask", task_id=int(item_id))
+        return bool(t) and int(t.get("category_id") or 0) == cid
+
     def list_groups(self) -> list[Group]:
         cid = self._require_epic_category()
         out = []
