@@ -201,22 +201,53 @@ def resolve_token(cfg: Config, role: str = "board") -> str | None:
 
 
 def find_config(start: Path | None = None) -> Path | None:
-    """Walk up from `start` (cwd) looking for .baton/config.yaml."""
+    """`./.baton/config.yaml`, and nowhere else.
+
+    It used to walk up, which was convenient and wrong: a repo with no link of its own
+    took the one from the folder above — **and its credential**. On a machine where the
+    folder above is a projects root, that credential is the one that creates repos and
+    protects branches, handed to a repo that never asked for it, silently.
+
+    So there is no inheritance. Each folder is a repo and links to a project
+    explicitly; several repos sharing a project each say so on their own. baton runs at
+    the root of the repository, by policy — and being policy rather than habit, it is
+    something `not_a_repo_root` can say out loud instead of guessing in silence.
+    """
+    return (cand if (cand := ((start or Path.cwd()).resolve()
+                              / ".baton" / "config.yaml")).is_file() else None)
+
+
+def not_at_repo_root(start: Path | None = None) -> str | None:
+    """Why the current folder is not where baton should run, or None if it is.
+
+    Answered from git, because git is what decides where a repo begins. A projects
+    ROOT is not a repo at all, and that is fine: it is the one place with no repo to be
+    at the root of.
+    """
+    import subprocess
+
     cur = (start or Path.cwd()).resolve()
-    for d in [cur, *cur.parents]:
-        cand = d / ".baton" / "config.yaml"
-        if cand.is_file():
-            return cand
-    return None
+    r = subprocess.run(["git", "-C", str(cur), "rev-parse", "--show-toplevel"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None                       # not a repo: a projects root, or plain dir
+    top = Path(r.stdout.strip()).resolve()
+    if top == cur:
+        return None
+    return (f"this is {cur.name}/, inside the repo at {top}. baton runs at the root of "
+            f"the repository — `cd {top}`.")
 
 
 def load(start: Path | None = None) -> Config:
     p = find_config(start)
     if p is None:
+        why = not_at_repo_root(start)
         raise BatonError(
-            "no .baton/config.yaml found (walked up from cwd). "
-            "Create one — see README.md § Config."
-        )
+            (f"no .baton/config.yaml here — {why}" if why else
+             "no .baton/config.yaml in this folder.\n"
+             "  It is not inherited from the folder above: each repo links to its "
+             "project explicitly, so a repo never borrows another one's credential.\n"
+             "  Link this one with `baton bootstrap`, or see README.md § Getting started."))
     return load_file(p)
 
 

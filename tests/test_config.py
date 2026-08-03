@@ -297,6 +297,39 @@ def test_a_config_written_before_this_still_loads():
     assert c.token_env("board") == "VIEJO"
 
 
+def test_config_is_not_inherited_from_the_folder_above(tmp_path=None):
+    """Un repo sin vinculo tomaba el config de arriba —y su credencial—. Donde la
+    carpeta de arriba es una raiz de proyectos, esa credencial es la que crea repos y
+    protege ramas, entregada a un repo que nunca la pidio."""
+    import tempfile
+    from pathlib import Path
+
+    from baton.config import find_config
+
+    with tempfile.TemporaryDirectory() as d:
+        raiz = Path(d)
+        (raiz / ".baton").mkdir()
+        (raiz / ".baton" / "config.yaml").write_text("adapters: {board: kanboard}\n")
+        hijo = raiz / "un-repo"
+        hijo.mkdir()
+
+        assert find_config(raiz) is not None, "la carpeta con config se encuentra"
+        assert find_config(hijo) is None, "la de adentro NO ve la de afuera"
+
+
+def test_running_from_a_subfolder_says_where_to_stand():
+    """La politica es que baton corre en la raiz del repo. Siendo politica y no
+    costumbre, se puede decir en voz alta en vez de buscar en silencio."""
+    from pathlib import Path
+
+    from baton.config import not_at_repo_root
+
+    aca = Path(__file__).resolve().parent          # tests/, dentro de este repo
+    dicho = not_at_repo_root(aca)
+    assert dicho and "root of the repository" in dicho and "cd " in dicho
+    assert not_at_repo_root(aca.parent) is None, "en la raiz del repo no dice nada"
+
+
 if __name__ == "__main__":
     # Enumerado por reflexión y no a mano: la lista escrita quedó nombrando tests que
     # ya no existen en cuanto uno se renombró, y ruff fue el único que lo notó.
