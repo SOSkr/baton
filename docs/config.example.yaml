@@ -123,18 +123,25 @@ repos:                 # a root's map: what folder is what repo. `doctor` at the
 
 # --- credentials (names only, never values) -----------------------------------------
 
-tokens: KANBOARD_TOKEN   # the env var holding THE board credential. ONE, because a
+tokens: BOARD_TOKEN      # the env var holding THE board credential. ONE, because a
                          # board has one: what it may do is the BOARD's answer, from
                          # the role of the user who owns it. baton gets no vote there,
                          # so it does not model two — a second variable separates
                          # nothing, it only picks, and nothing ever checked that the
                          # one called "admin" could do more.
                          #
+                         # The name is the ADAPTER ROLE, not the provider: `board`,
+                         # `repo`, `migration`. Writing KANBOARD_TOKEN here would put
+                         # the provider into the name, and then moving this board to
+                         # another one means exporting a different variable for no
+                         # reason — `adapters:` already says which provider it is.
+                         #
                          # The rule: a separation is only real when a third party
                          # enforces it. GitHub does — it will not let a PR author
-                         # approve their own PR — and THAT split stays: the code host
-                         # always reads GH_TOKEN and GH_ADMIN_TOKEN, whichever
-                         # provider holds the board.
+                         # approve their own PR — but that is GITHUB enforcing it, not
+                         # two variables. The code host reads ONE too, $REPO_TOKEN,
+                         # and which credential you put there is your decision folder
+                         # by folder: a projects root wants one that can create repos.
                          #
                          # Delete this line and your backend's default is used. If the
                          # credential cannot create a project, create it by hand and

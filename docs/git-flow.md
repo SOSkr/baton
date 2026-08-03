@@ -71,8 +71,10 @@ Three places, and none of them is prose alone:
 | An item cannot reach the done stage without passing through verification | `stages.verify` in config → the CLI refuses the jump | **error**, opt-in |
 | The agent cannot merge its own work unreviewed | branch protection: 1 approving review, and GitHub blocks self-approval | **error** |
 
-That last one is the real gate, and it is why the [credential split](../README.md#credential-roles)
-exists: the token that writes code should not be the one that approves it.
+That last one is the real gate, and it is the only separation baton relies on: GitHub
+refuses to let a PR author approve their own PR. baton does not model a second
+[credential](../README.md#credentials) to imitate it — a split nobody enforces is a
+claim, and this one is enforced by the host.
 
 ## Why the release is a PR and not a branch
 

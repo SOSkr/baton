@@ -211,7 +211,8 @@ def _print_bootstrap(rep: dict) -> int:
             continue
         if not one.get("admin", True):
             print(f"protections {name}: SKIPPED — this credential has no admin there")
-            print("  (set $GH_ADMIN_TOKEN, or have whoever holds admin re-run this)")
+            print("  (put a credential with admin there in $REPO_TOKEN, or have "
+                  "whoever holds admin re-run this)")
             bad = True
             continue
         for br, state in one.get("branches", {}).items():
@@ -457,7 +458,7 @@ def cmd_doctor(a, b, cfg):
     saved = os.environ.get("GH_TOKEN")   # probing as admin must not leak into later ops
     try:
         # The board: ONE credential, so one line. Which verb is running does not
-        # change whose it is — see `_BOARD_TOKEN`.
+        # change whose it is — see `_TOKEN`.
         board_var = cfg.token_env()
         if not os.environ.get(board_var):
             print(f"board ${board_var}: NOT set — skipped")

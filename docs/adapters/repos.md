@@ -45,18 +45,18 @@ def probe(self) -> str:
 that runs before any protection write reads the set, never the sentence. A gate that has
 to parse `probe()`'s prose is one wording change away from silently passing.
 
-`baton doctor` runs the sentence once per credential role, and the output is what makes the
-[agent/admin split](../../README.md#credential-roles) *checkable*:
+`baton doctor` runs the sentence once, and the output is what makes the credential
+[checkable](../../README.md#credentials) instead of assumed:
 
 ```
-token[agent] $GH_TOKEN:
-  code acme/app: OK — acme-bot on acme/app — push, pull
-token[admin] $GH_ADMIN_TOKEN:
+code $REPO_TOKEN:
   code acme/app: OK — alice on acme/app — admin, maintain, push, pull
 ```
 
-If the `agent` line comes back with `admin`, the separation is decoration and the
-person reading can see it. A probe that returned "OK" would have hidden that.
+There is no second variable to compare against. What this credential may do is
+GitHub's answer, printed verbatim — so a token that comes back `push, pull` when the
+run needs `admin` says so here, before `bootstrap` fails on it. A probe that returned
+just "OK" would have hidden that.
 
 Whatever host you implement, find its equivalent: the permission level, the scopes, the
 role. Reporting only reachability wastes the one call you get.
@@ -85,16 +85,16 @@ and the config already knows the list.
 
 ## Credentials
 
-The code host has **its own credential pair**, independent of the board's. `git` is a
-second system: the board answering says nothing about whether the agent can push.
+The code host has **its own credential**, independent of the board's. `git` is a
+second system: the board answering says nothing about whether you can push.
 
 ```python
-from ..config import github_token_env
-GitHubRepo(repo, os.environ.get(github_token_env(role)))
+GitHubRepo(repo, os.environ.get(cfg.token_env("repo")))
 ```
 
-`github_token_env(role)` returns `GH_TOKEN` / `GH_ADMIN_TOKEN` regardless of which
-backend holds the board. A new host needs its own equivalent in `_DEFAULT_TOKENS`.
+`token_env("repo")` returns `REPO_TOKEN` regardless of which backend holds the board —
+the name is the adapter ROLE, so it stays put when the provider changes. A project
+that wants to name it otherwise writes `tokens: {repo: MI_VAR}`.
 
 ## Wiring it up
 

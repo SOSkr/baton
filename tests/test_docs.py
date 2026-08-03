@@ -207,3 +207,27 @@ def test_the_readme_shows_no_version_number_it_would_have_to_chase():
     ejemplo = (ROOT / "README.md").read_text().split("## Example", 1)[1].split("##", 1)[0]
     suelto = re.findall(r"^baton \d+\.\d+\.\d+", ejemplo, re.M)
     assert not suelto, f"versión escrita a mano en el ejemplo: {suelto}"
+
+
+def test_no_retired_credential_name_survives_anywhere():
+    """La #42 sacó el modelo de dos credenciales; los TEXTOS se quedaron. `doctor`
+    seguía mandando a exportar `$GH_ADMIN_TOKEN`, el ejemplo de config enseñaba que el
+    code host "siempre lee GH_TOKEN y GH_ADMIN_TOKEN", y `boards.md` le decía a quien
+    escribiera un adapter nuevo que agregara su par a `_DEFAULT_TOKENS` — un símbolo
+    que ya no existe, o sea una instrucción imposible de seguir.
+
+    Un nombre retirado que sobrevive en la documentación no es texto viejo: enseña el
+    modelo que se acaba de sacar. Este test es lo único que impide que vuelva.
+    """
+    retirados = ("GH_ADMIN_TOKEN", "KANBOARD_ADMIN_TOKEN", "PLANE_ADMIN_API_KEY",
+                 "_DEFAULT_TOKENS", "_BOARD_TOKEN", "github_token_env",
+                 "credential-roles", "token[agent]", "token[admin]")
+    # `skills/` queda afuera a propósito: `ship-pr.sh` lee `$GH_ADMIN_TOKEN` como una
+    # variable que VOS podés exportar para `gh`, no como una que baton resuelva.
+    # Nombrar la propia no es modelarla.
+    mirados = [*(ROOT / "src").rglob("*.py"), *(ROOT / "docs").rglob("*.md"),
+               EXAMPLE, ROOT / "README.md"]
+    culpables = [f"{p.relative_to(ROOT)}: {n}"
+                 for p in mirados for n in retirados if n in p.read_text()]
+    assert not culpables, ("nombres de credencial retirados, todavía escritos:\n  "
+                           + "\n  ".join(culpables))

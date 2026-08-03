@@ -67,9 +67,10 @@ mean editing code. Cache discovery per-instance (see `PlaneBoard._discover_state
 never across runs.
 
 **2. Credentials come from the environment, never from config.** `config.yaml` holds
-the *name* of an env var, never a token. Two roles exist — `agent` and `admin` — and
-which one you get is decided by the caller, not by the adapter. See
-[credential roles](../../README.md#credential-roles).
+the *name* of an env var, never a token. One variable per **adapter role** — `board`,
+`repo`, `migration` — so the name stays put when the provider changes, and what that
+credential may do is the host's answer, not baton's. See
+[Credentials](../../README.md#credentials).
 
 **3. Every failure is a `BatonError` with a message a human can act on.** Not a
 traceback, not `KeyError`. Include what was being looked for and what does exist:
