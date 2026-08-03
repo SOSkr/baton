@@ -330,6 +330,34 @@ def test_running_from_a_subfolder_says_where_to_stand():
     assert not_at_repo_root(aca.parent) is None, "en la raiz del repo no dice nada"
 
 
+def test_a_root_is_declared_not_deduced():
+    """Una raiz es algo nuevo del modelo. Deducirla —tiene `repos:` y no `repo:`— seria
+    una inferencia silenciosa mas, en una herramienta que paso el dia sacandolas."""
+    from baton.config import Config
+
+    assert Config(backend="kanboard").is_root is False, "por defecto, un repo"
+    assert Config(backend="kanboard", kind="root").is_root is True
+
+
+def test_the_root_map_carries_folder_and_repo():
+    from baton.config import Config
+
+    c = Config(backend="kanboard", kind="root",
+               repos={"engine": {"folder": "./app-engine", "repo": "acme/app-engine"}})
+    assert c.repo_entry("engine") == {"folder": "./app-engine", "repo": "acme/app-engine"}
+    assert c.all_repos == ["acme/app-engine"]
+
+
+def test_an_unknown_key_is_none_not_a_default_repo():
+    """Nunca un fallback: caer al repo por defecto es como el trabajo termina en la rama
+    equivocada sin que nadie se entere."""
+    from baton.config import Config
+
+    c = Config(backend="kanboard", kind="root", repo="acme/app",
+               repos={"engine": {"folder": "./e", "repo": "acme/e"}})
+    assert c.repo_entry("no-existe") is None
+
+
 if __name__ == "__main__":
     # Enumerado por reflexión y no a mano: la lista escrita quedó nombrando tests que
     # ya no existen en cuanto uno se renombró, y ruff fue el único que lo notó.

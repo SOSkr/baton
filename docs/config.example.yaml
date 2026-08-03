@@ -101,11 +101,25 @@ labels:                # the label AXES this project uses. Labels are axes, neve
 review_label: needs-review   # applied automatically on a BACKWARD stage move, so a
                              # step back is something a human sees
 
-# --- multi-repo ---------------------------------------------------------------------
+# --- a projects ROOT ----------------------------------------------------------------
+#
+# A root is a folder that HOLDS repos — `~/Git-projects/`, or `~/Git-projects/aot/`
+# with its seven. One board, one code host, and the repos under it. Only a root has
+# the two keys below, and only a root may create repos (`baton bootstrap` there).
+#
+# Declared, not deduced: a root is a new thing in the model, and deducing it would be
+# one more silent inference. Declared, `doctor` can say "this is not a root".
 
-repos:                 # a board project can span several git repos; the `area:` label
-  engine: acme/app-engine    # on an item says which one. Matches label `area:engine`
-  web: acme/app-web
+kind: root             # "repo" (the default) or "root". A repo omits this.
+
+repos:                 # a root's map: what folder is what repo. `doctor` at the root
+  engine:              # checks every entry against reality, and reports both what is
+    folder: ./app-engine   # missing (a folder with .baton nobody registered) and what
+    repo: acme/app-engine  # is stale (an entry whose folder is gone).
+  web:
+    folder: ./app-web
+    repo: acme/app-web
+
 
 # --- credentials (names only, never values) -----------------------------------------
 

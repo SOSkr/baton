@@ -485,6 +485,32 @@ def cmd_doctor(a, b, cfg):
             print("    Fix: baton bootstrap --check <your CI check>   (idempotent; "
                   "protects every repo the config declares)")
 
+    # A ROOT reports on every repo it holds. This is what the per-repo `repos:` map
+    # used to buy: standing in one repo you could see that a SIBLING was unprotected —
+    # the kind of hole nobody finds because nobody stands there. The root is where that
+    # view belongs, and from here it can also see what the map does not know about.
+    if cfg.is_root:
+        print(f"projects root: {len(cfg.repos)} registered")
+        registered = set()
+        for key, entry in sorted(cfg.repos.items()):
+            e = cfg.repo_entry(key) or {}
+            folder = Path(e.get("folder") or key)
+            here = (cfg.path.parent.parent / folder) if cfg.path else folder
+            registered.add(here.resolve())
+            state = []
+            state.append("folder" if here.is_dir() else "FOLDER MISSING")
+            state.append("linked" if (here / ".baton" / "config.yaml").is_file()
+                         else "NOT LINKED")
+            print(f"  {key}: {e.get('repo', '?')} — {' · '.join(state)}")
+            ok &= "MISSING" not in " ".join(state) and "NOT" not in " ".join(state)
+        # What the map does not know about: a folder that linked itself and never got
+        # registered. Silent drift is the failure mode of every hand-kept list.
+        base = cfg.path.parent.parent if cfg.path else Path.cwd()
+        for d in sorted(p for p in base.iterdir() if p.is_dir()):
+            if (d / ".baton" / "config.yaml").is_file() and d.resolve() not in registered:
+                print(f"  {d.name}: linked but NOT in the map — add it or it is invisible here")
+                ok = False
+
     # How this project releases, checked against what its CI actually declares. Not
     # used to decide anything — `git.release` decides — but a config that says `tag`
     # on a repo whose only workflow fires on `release` is a ship that will report

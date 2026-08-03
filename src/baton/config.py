@@ -117,7 +117,8 @@ class Config:
     tokens: dict = field(default_factory=dict)   # role->ENV VAR NAME: {agent: GH_TOKEN, admin: GH_ADMIN_TOKEN}
     repo: str | None = None                       # OWNER/REPO where the CODE lives, when the board is elsewhere
     git: dict = field(default_factory=lambda: dict(DEFAULT_GIT))  # {integration, production}
-    repos: dict = field(default_factory=dict)     # multi-repo project: {area-label-value: OWNER/REPO}
+    kind: str = "repo"                            # "repo" | "root" — see `is_root`
+    repos: dict = field(default_factory=dict)     # ROOT only: {key: {folder, repo}}
     migrate_from: dict = field(default_factory=dict)  # read-only source board: {repo, project}
     review_label: str | None = None               # label applied on UNEXPECTED (backward) transitions
     memory: str | None = None                     # this project's name in the session-memory store, if any
@@ -163,17 +164,42 @@ class Config:
 
     @property
     def all_repos(self) -> list[str]:
-        """Every repo this project touches — what `doctor` has to check, since a
-        credential can reach one repo and not another."""
-        seen = [r for r in [self.code_repo, *self.repos.values()] if r]
+        """Every repo this config knows: what `doctor` has to check, since one
+        credential can reach one repo and not the next.
+
+        On a ROOT that is the map's repos; on a repo, its own.
+        """
+        seen = [self.code_repo] if self.code_repo else []
+        for entry in self.repos.values():
+            name = entry.get("repo") if isinstance(entry, dict) else entry
+            if name:
+                seen.append(name)
         return list(dict.fromkeys(seen))
 
+    @property
+    def is_root(self) -> bool:
+        """Is this the config of a projects ROOT — a folder that holds repos?
+
+        Declared, not deduced. A root is a new thing in the model, and deducing it
+        (`has repos: and no repo:`) would be one more silent inference in a tool that
+        spent a whole day removing them. Declared, `doctor` can say "this is not a
+        root" instead of behaving differently without explaining why.
+        """
+        return self.kind == "root"
+
+    def repo_entry(self, key: str) -> dict | None:
+        """One entry of a root's map: `{folder, repo}`. None if the key is unknown —
+        and unknown must stay an error at the call site, never a fall back to a default
+        repo. That fallback is how work lands in the wrong branch quietly."""
+        e = self.repos.get(key)
+        return dict(e) if isinstance(e, dict) else ({"repo": e} if e else None)
+
     def repo_for(self, area: str | None) -> str | None:
-        """Which repo an `area:<x>` label points at. Singular on purpose: an item
-        that spans repos carries a Checklist with ONE BOX PER REPO, and each box
-        names its own area — so per box it is always one repo."""
+        """Which repo an `area:<x>` label points at, on a config that still maps them.
+        Kept for projects written before the root map; BATON-48 replaces it."""
         if area and area in self.repos:
-            return self.repos[area]
+            e = self.repo_entry(area)
+            return (e or {}).get("repo") or self.code_repo
         return self.code_repo
 
     def repo_for_labels(self, labels: list[str]) -> str | None:
@@ -276,6 +302,7 @@ def load_file(p: Path) -> Config:
         tokens=data.get("tokens", {}) or {},
         repo=data.get("repo"),
         git={**DEFAULT_GIT, **(data.get("git") or {})},
+        kind=(data.get("kind") or "repo").strip().lower(),
         repos=data.get("repos", {}) or {},
         migrate_from=data.get("migrate_from", {}) or {},
         review_label=data.get("review_label"),
