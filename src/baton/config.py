@@ -14,31 +14,33 @@ import yaml
 from .base import BatonError
 
 
-# Env var NAMES. Tokens themselves NEVER live in config.yaml.
+# Env var NAMES, one per ADAPTER ROLE. Tokens themselves NEVER live in config.yaml.
 #
-# THE CODE HOST has two, and the split is real: agent writes code, admin approves and
-# merges — GitHub itself refuses to let a PR author approve their own PR.
-_DEFAULT_TOKENS = {
-    "github": {"agent": "GH_TOKEN", "admin": "GH_ADMIN_TOKEN"},
+# By role, not by provider, and that is the whole point: the name stays put when the
+# provider changes. Migrating this project's board from Plane to Kanboard would have
+# meant exporting a different variable — the provider was written into the name, and a
+# name that repeats what `adapters:` already says is a name that goes out of sync.
+#
+# There is no `agent` and no `admin`. baton does not model roles of credential: what a
+# credential may do is decided by whoever issued it, and A SEPARATION IS ONLY REAL WHEN
+# A THIRD PARTY ENFORCES IT. GitHub does — it will not let a PR author approve their own
+# PR. A board enforces the permissions of the user behind the token, which are the same
+# whichever variable it came from; pointing a second one at it separated nothing, and
+# nothing ever checked that the one called `admin` could do more.
+#
+# `migration` is not symmetry. During a migration there are TWO boards at once, and it
+# is the only moment two board credentials must coexist. Until now it worked by
+# accident — the source was Plane and the destination Kanboard, so their hardcoded
+# names happened to differ. Moving between two instances of the SAME provider collided.
+_TOKEN = {
+    "repo": "REPO_TOKEN",
+    "board": "BOARD_TOKEN",
+    "migration": "MIGRATION_TOKEN",
 }
 
-# THE BOARD has ONE. Not a simplification — the honest shape.
-#
-# A board credential belongs to a user, and what it may do is the BOARD's answer, from
-# that user's role. baton gets no vote, so it does not model two. Pointing a second
-# variable at a board separates nothing: it only picks, and nothing ever checked that
-# the one called `admin` could do more. On the code host that check exists and the host
-# enforces it; here it was an unverified claim — which is what `doctor` exists to kill.
-#
-# The rule, once: A SEPARATION IS ONLY REAL WHEN A THIRD PARTY ENFORCES IT.
-#
-# If that credential cannot create a project, the project gets created by hand and
-# `bootstrap` adopts it — which it already knows how to do. There is no privileged mode
-# to ask for: the permission belongs to the user, not to baton.
-_BOARD_TOKEN = {
-    "plane": "PLANE_API_KEY",
-    "kanboard": "KANBOARD_TOKEN",
-}
+# The roles an adapter can serve. `adapters:` in config maps each to a provider file.
+ADAPTER_ROLES = ("board", "repo", "migration")
+
 BACKENDS = ("plane", "kanboard")
 
 # What each board needs in `target` before its config is worth writing. Lives here
@@ -50,7 +52,6 @@ _REQUIRED_TARGET = {
     "plane": ("base_url", "workspace", "project"),
     "kanboard": ("base_url", "project"),
 }
-ROLES = ("agent", "admin")
 
 # Which provider serves each adapter role. The value is the FILE NAME under
 # `adapters/<role>/` — see adapters/registry.py. Only the board has ever varied; the
@@ -102,10 +103,10 @@ def _mcp_blocks(data: dict):
             yield ["projects", proj, "mcpServers"], cfg["mcpServers"]
 
 
-def github_token_env(role: str) -> str:
-    """GitHub's var for `role`, regardless of which backend holds the board. With a
-    Plane board, git is still GitHub and still needs its own credential."""
-    return _DEFAULT_TOKENS["github"][role]
+def repo_token_env(cfg: "Config | None" = None) -> str:
+    """The code host's variable. Separate from the board's because they are two
+    systems with two credentials — not because one outranks the other."""
+    return cfg.token_env("repo") if cfg else _TOKEN["repo"]
 
 
 @dataclass
@@ -116,7 +117,8 @@ class Config:
     tokens: dict = field(default_factory=dict)   # role->ENV VAR NAME: {agent: GH_TOKEN, admin: GH_ADMIN_TOKEN}
     repo: str | None = None                       # OWNER/REPO where the CODE lives, when the board is elsewhere
     git: dict = field(default_factory=lambda: dict(DEFAULT_GIT))  # {integration, production}
-    repos: dict = field(default_factory=dict)     # multi-repo project: {area-label-value: OWNER/REPO}
+    kind: str = "repo"                            # "repo" | "root" — see `is_root`
+    repos: dict = field(default_factory=dict)     # ROOT only: {key: {folder, repo}}
     migrate_from: dict = field(default_factory=dict)  # read-only source board: {repo, project}
     review_label: str | None = None               # label applied on UNEXPECTED (backward) transitions
     memory: str | None = None                     # this project's name in the session-memory store, if any
@@ -136,20 +138,24 @@ class Config:
         if backend and not self.adapters.get("board"):
             self.adapters["board"] = backend
 
-    def token_env(self, role: str | None = None) -> str:
-        """The env var NAME holding THE board credential. `role` is accepted and
-        ignored: a board has one credential, and which verb is running does not change
-        whose it is.
+    def token_env(self, role: str | None = "board") -> str:
+        """The env var NAME holding the credential for an ADAPTER ROLE.
 
-        A `tokens:` written before this had a key per role. It is still read — those
-        were never two credentials, so either name resolves to the same thing.
+        `tokens:` overrides it, either as one name for the board — the common case —
+        or per role. What it never holds is a credential.
         """
+        role = role or "board"          # callers written before roles pass None
         t = self.tokens
         if isinstance(t, str) and t:
-            return t
+            return t if role == "board" else _TOKEN[role]
         if isinstance(t, dict) and t:
-            return t.get("agent") or t.get("admin") or _BOARD_TOKEN[self.backend]
-        return _BOARD_TOKEN[self.backend]
+            # A config written before roles-of-credential went away used `agent`/`admin`
+            # for the board. Those were never two credentials, so either resolves here.
+            if role == "board" and (t.get("agent") or t.get("admin")):
+                return t.get("agent") or t.get("admin")
+            if t.get(role):
+                return t[role]
+        return _TOKEN[role]
 
     @property
     def code_repo(self) -> str | None:
@@ -158,17 +164,42 @@ class Config:
 
     @property
     def all_repos(self) -> list[str]:
-        """Every repo this project touches — what `doctor` has to check, since a
-        credential can reach one repo and not another."""
-        seen = [r for r in [self.code_repo, *self.repos.values()] if r]
+        """Every repo this config knows: what `doctor` has to check, since one
+        credential can reach one repo and not the next.
+
+        On a ROOT that is the map's repos; on a repo, its own.
+        """
+        seen = [self.code_repo] if self.code_repo else []
+        for entry in self.repos.values():
+            name = entry.get("repo") if isinstance(entry, dict) else entry
+            if name:
+                seen.append(name)
         return list(dict.fromkeys(seen))
 
+    @property
+    def is_root(self) -> bool:
+        """Is this the config of a projects ROOT — a folder that holds repos?
+
+        Declared, not deduced. A root is a new thing in the model, and deducing it
+        (`has repos: and no repo:`) would be one more silent inference in a tool that
+        spent a whole day removing them. Declared, `doctor` can say "this is not a
+        root" instead of behaving differently without explaining why.
+        """
+        return self.kind == "root"
+
+    def repo_entry(self, key: str) -> dict | None:
+        """One entry of a root's map: `{folder, repo}`. None if the key is unknown —
+        and unknown must stay an error at the call site, never a fall back to a default
+        repo. That fallback is how work lands in the wrong branch quietly."""
+        e = self.repos.get(key)
+        return dict(e) if isinstance(e, dict) else ({"repo": e} if e else None)
+
     def repo_for(self, area: str | None) -> str | None:
-        """Which repo an `area:<x>` label points at. Singular on purpose: an item
-        that spans repos carries a Checklist with ONE BOX PER REPO, and each box
-        names its own area — so per box it is always one repo."""
+        """Which repo an `area:<x>` label points at, on a config that still maps them.
+        Kept for projects written before the root map; BATON-48 replaces it."""
         if area and area in self.repos:
-            return self.repos[area]
+            e = self.repo_entry(area)
+            return (e or {}).get("repo") or self.code_repo
         return self.code_repo
 
     def repo_for_labels(self, labels: list[str]) -> str | None:
@@ -186,34 +217,63 @@ class Config:
 Config.backend = property(lambda self: self.adapters.get("board"))
 
 
-def resolve_token(cfg: Config, role: str | None = None) -> str | None:
-    """The board credential. One, whatever verb is asking.
+def resolve_token(cfg: Config, role: str = "board") -> str | None:
+    """The credential for an adapter role.
 
     Missing is fine and `doctor` reports it: the backend may have its own auth to fall
     back on, and dying at the door of every verb would be worse than saying it once.
-    `role` is accepted so existing callers keep working; it changes nothing, because
-    there is nothing for it to choose between.
     """
-    return os.environ.get(cfg.token_env())
+    return os.environ.get(cfg.token_env(role))
 
 
 def find_config(start: Path | None = None) -> Path | None:
-    """Walk up from `start` (cwd) looking for .baton/config.yaml."""
+    """`./.baton/config.yaml`, and nowhere else.
+
+    It used to walk up, which was convenient and wrong: a repo with no link of its own
+    took the one from the folder above — **and its credential**. On a machine where the
+    folder above is a projects root, that credential is the one that creates repos and
+    protects branches, handed to a repo that never asked for it, silently.
+
+    So there is no inheritance. Each folder is a repo and links to a project
+    explicitly; several repos sharing a project each say so on their own. baton runs at
+    the root of the repository, by policy — and being policy rather than habit, it is
+    something `not_a_repo_root` can say out loud instead of guessing in silence.
+    """
+    return (cand if (cand := ((start or Path.cwd()).resolve()
+                              / ".baton" / "config.yaml")).is_file() else None)
+
+
+def not_at_repo_root(start: Path | None = None) -> str | None:
+    """Why the current folder is not where baton should run, or None if it is.
+
+    Answered from git, because git is what decides where a repo begins. A projects
+    ROOT is not a repo at all, and that is fine: it is the one place with no repo to be
+    at the root of.
+    """
+    import subprocess
+
     cur = (start or Path.cwd()).resolve()
-    for d in [cur, *cur.parents]:
-        cand = d / ".baton" / "config.yaml"
-        if cand.is_file():
-            return cand
-    return None
+    r = subprocess.run(["git", "-C", str(cur), "rev-parse", "--show-toplevel"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None                       # not a repo: a projects root, or plain dir
+    top = Path(r.stdout.strip()).resolve()
+    if top == cur:
+        return None
+    return (f"this is {cur.name}/, inside the repo at {top}. baton runs at the root of "
+            f"the repository — `cd {top}`.")
 
 
 def load(start: Path | None = None) -> Config:
     p = find_config(start)
     if p is None:
+        why = not_at_repo_root(start)
         raise BatonError(
-            "no .baton/config.yaml found (walked up from cwd). "
-            "Create one — see README.md § Config."
-        )
+            (f"no .baton/config.yaml here — {why}" if why else
+             "no .baton/config.yaml in this folder.\n"
+             "  It is not inherited from the folder above: each repo links to its "
+             "project explicitly, so a repo never borrows another one's credential.\n"
+             "  Link this one with `baton bootstrap`, or see README.md § Getting started."))
     return load_file(p)
 
 
@@ -242,6 +302,7 @@ def load_file(p: Path) -> Config:
         tokens=data.get("tokens", {}) or {},
         repo=data.get("repo"),
         git={**DEFAULT_GIT, **(data.get("git") or {})},
+        kind=(data.get("kind") or "repo").strip().lower(),
         repos=data.get("repos", {}) or {},
         migrate_from=data.get("migrate_from", {}) or {},
         review_label=data.get("review_label"),
@@ -310,8 +371,30 @@ def write_config(board: str, target: dict, *, repo: str | None = None,
     ordered = {k: merged[k] for k in _OWNED if k in merged}
     ordered.update({k: v for k, v in merged.items() if k not in ordered})
     p.parent.mkdir(parents=True, exist_ok=True)
+    # Nothing to change and the file is already there: do not rewrite it. A yaml
+    # round-trip cannot keep comments, so an idempotent re-run used to quietly strip
+    # the explanations someone wrote — a cost with nothing bought.
+    if p.is_file() and not changed and merged == existing:
+        return p, changed, False
     p.write_text(yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False))
     return p, changed, "#" in raw
+
+
+def register_repo(root_cfg: Path, key: str, *, folder: str, repo: str) -> bool:
+    """Add an entry to a ROOT's map. Returns whether anything changed.
+
+    `bootstrap` calls it right after creating a repo, and that is the point: a map
+    kept by hand is a map that is wrong by the third week. The one at the root is only
+    trustworthy because nobody has to remember to update it.
+    """
+    data = yaml.safe_load(root_cfg.read_text()) or {}
+    repos = data.setdefault("repos", {})
+    entry = {"folder": folder, "repo": repo}
+    if repos.get(key) == entry:
+        return False
+    repos[key] = entry
+    root_cfg.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
+    return True
 
 
 def load_project(name_or_path: str, base: Config) -> Config:

@@ -32,8 +32,8 @@ pipx install baton-board          # the command it installs is `baton`
 
 | | Where | Export as |
 |---|---|---|
-| Board | Kanboard → *Settings → API → API token* | `KANBOARD_TOKEN` |
-| Code | GitHub → a token with `repo` scope | `GH_TOKEN` |
+| Board | Kanboard → *Settings → API*, or your own profile → *API* | `BOARD_TOKEN` |
+| Code | GitHub → a token with `repo` scope | `REPO_TOKEN` |
 
 Tokens live in your environment, never in `config.yaml`. The file holds env var
 **names** only, so a project can point a role at a different variable.
@@ -160,13 +160,13 @@ coordinates are a board's business:
 | `base_url` | instance URL, without `/jsonrpc.php` | instance URL |
 | `project` | the project's **name**, as the board shows it | the identifier — the `APP` in `APP-123` |
 | `workspace` | — *(Kanboard has none)* | workspace slug |
-| `api_user` | whose credential `$KANBOARD_TOKEN` is | — *(the API key is a user)* |
+| `api_user` | whose credential `$BOARD_TOKEN` is | — *(the API key is a user)* |
 | `user` | who comments are attributed to | — |
 
 **`api_user` decides how much access baton has.** Kanboard takes two kinds of
 credential and the username is what tells them apart:
 
-| `api_user` | `$KANBOARD_TOKEN` is | Reaches |
+| `api_user` | `$BOARD_TOKEN` is | Reaches |
 |---|---|---|
 | `jsonrpc` *(default)* | the **application** token, *Settings → API* | every project on the instance, as admin |
 | a person's username | **their** token, from their profile → API | what that person can see, nothing more |
@@ -219,39 +219,48 @@ and every command and skill follows. `baton bootstrap` also makes `@triage` the 
 **default** stage, so an item created without one lands inside the lifecycle instead of
 in whatever column the backend picked — and `baton doctor` says so if either drifts.
 
-## Credential roles
+## Credentials
 
-Two roles, because the thing that writes code should not be the thing that approves it —
-the same separation Dependabot and Renovate rely on (GitHub does not let a PR author
-approve their own PR).
+**One variable per adapter role.** Not per provider, and not per "role of credential":
 
-**The board takes one credential; the code host takes two.**
-
-| | Reads | Why |
+| Role | Reads | Is |
 |---|---|---|
-| board | `KANBOARD_TOKEN` · `PLANE_API_KEY` | one, always |
-| code host, `agent` | `GH_TOKEN` | writes code, branches, PRs |
-| code host, `admin` | `GH_ADMIN_TOKEN` | approves and merges |
+| board | `BOARD_TOKEN` | where item state lives |
+| repo | `REPO_TOKEN` | the code host |
+| migration | `MIGRATION_TOKEN` | the old board, read once — only during a migration |
 
-The asymmetry is the point. **A separation is only real when a third party enforces
-it** — GitHub does, refusing to let a PR author approve their own PR. A board enforces
-the permissions of whoever owns the credential, and those are the same whichever
-variable it came from; a second one would only pick, while nothing ever checked that
-the one called `admin` could do more. That is an unverified claim, which is what
-`doctor` exists to kill.
+**By role, so the name stays put when the provider changes.** Moving this project's
+board from Plane to Kanboard would otherwise have meant exporting a different
+variable — the provider was written into the name, and a name that repeats what
+`adapters:` already says is a name that goes out of sync.
 
-So `--as admin` changes the **code host** credential and nothing else.
+`MIGRATION_TOKEN` is its own because a migration has **two boards at once**. Until it
+existed that worked by accident — the source was Plane and the destination Kanboard,
+so their names happened to differ; moving between two instances of the same provider
+collided.
 
 ```yaml
-tokens: KANBOARD_TOKEN     # optional — this is already the default for that backend
+tokens: BOARD_TOKEN                      # the default; write it only to change it
+tokens: {board: KB_PROD, repo: GH_BOT}   # or name them per role
 ```
 
-**If that credential cannot create a project**, create the project by hand and re-run
-`baton bootstrap`: it adopts what already exists. There is no privileged mode to ask
-for, because the permission belongs to the user and not to baton.
+### There is no `agent` and no `admin`
 
-Worth knowing for Plane specifically: an API key inherits the role of the **user** who
-created it, so which account made the key is the whole story.
+baton does not model roles of credential. **What a credential may do is decided by
+whoever issued it**, and a separation is only real when a third party enforces it:
+GitHub does — it will not let a PR author approve their own PR. A board enforces the
+permissions of the user behind the token, which are the same whichever variable it
+came from. Pointing a second one at it separated nothing, and nothing ever checked
+that the one called `admin` could do more — an unverified claim, which is what
+`doctor` exists to kill.
+
+So which credential you use where is **your** decision, folder by folder: a projects
+root wants one that can create repos; a repo does not need one. `--as admin` is still
+accepted so older scripts do not break, and it chooses nothing.
+
+**If a credential cannot do something**, whoever issued it says so and `doctor`
+reports it. A board project that cannot be created gets created by hand, and
+`bootstrap` adopts it.
 
 **Credential missing?** `doctor` looks for it in the MCP servers an agent runtime has
 configured (`~/.claude.json`, `.mcp.json`) and prints where it is, plus the command to
@@ -288,6 +297,52 @@ over that stage, so an item cannot reach Done without passing through verificati
 It gates the stage, not the work — two deliberate `advance` calls still get you
 through — but skipping stops being an oversight nobody notices and becomes a move
 recorded in the board's own history. Projects that do not declare it are never gated.
+
+## Roots and repos
+
+**Where you stand decides what baton may do**, and each folder links itself.
+
+A **projects root** is a folder that holds repos — `~/Git-projects/`, or
+`~/Git-projects/aot/` with its seven. One board, one code host, the repos under it.
+It says so:
+
+```yaml
+kind: root
+repos:
+  engine: {folder: ./app-engine, repo: acme/app-engine}
+  web:    {folder: ./app-web,    repo: acme/app-web}
+```
+
+| | At a root | Inside a repo |
+|---|---|---|
+| `bootstrap` | creates the repo, clones it, protects branches, links it, registers it | **validates**: reads, compares, reports |
+| writes to the code host | yes | **never** |
+| `doctor` | every repo in the map, plus what the map does not know about | this repo |
+
+Everything that writes to the host happens at a root, with the credential you chose
+to put there. Inside a repo baton reads — before this, `bootstrap` standing in one
+repo could create another one and nothing stopped it. Declared rather than deduced, so
+`doctor` can say *"this is not a root"* instead of behaving differently without saying
+why.
+
+**Config is never inherited.** `baton` reads `./.baton/config.yaml` and nowhere else;
+it does not walk up. A repo with no link of its own used to take the one from the
+folder above **and its credential** — at a root, that is the credential that creates
+repos. Each repo links to its project explicitly, and several repos sharing a project
+each say so on their own.
+
+baton runs at the root of the repository. Being policy rather than habit, it says so:
+
+```
+$ cd src && baton list
+baton: no .baton/config.yaml here — this is src/, inside the repo at ~/Git-projects/baton.
+       baton runs at the root of the repository — `cd ~/Git-projects/baton`.
+```
+
+On a multi-repo project an item says which repo its work is for, with a `repo:` label
+resolved against the root's map. It is **mandatory** there and has no default: a
+default is how work gets branched in the wrong place and nobody finds out until the
+PR. An epic can carry several — a deliverable rarely respects repo boundaries.
 
 ## Git flow
 

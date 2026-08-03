@@ -256,54 +256,106 @@ def test_doctor_reports_everything_even_with_no_credentials_at_all():
     assert rc == 1                          # and it reports failure rather than dying
 
 
-def test_a_board_has_one_credential_and_the_verb_does_not_change_it():
-    """Un board no tiene dos credenciales: tiene una, y qué puede hacer lo decide el
-    board según el usuario dueño. baton no tiene voto, así que no modela dos.
+def test_one_variable_per_adapter_role_and_no_provider_in_the_name():
+    """Por rol y no por proveedor: el nombre se queda quieto cuando el proveedor cambia.
+    Migrar el board de Plane a Kanboard habria obligado a exportar otra variable, porque
+    el proveedor estaba escrito adentro del nombre."""
+    from baton.config import ADAPTER_ROLES, Config
 
-    Apuntar una segunda variable a un board no separaba nada — solo elegía, y nadie
-    comprobaba nunca que la llamada `admin` pudiera más. En el code host esa
-    comprobación existe y la hace cumplir GitHub; acá era una afirmación sin verificar.
-    """
+    c = Config(backend="kanboard")
+    assert ADAPTER_ROLES == ("board", "repo", "migration")
+    assert c.token_env("board") == "BOARD_TOKEN"
+    assert c.token_env("repo") == "REPO_TOKEN"
+    assert c.token_env("migration") == "MIGRATION_TOKEN"
+    for var in (c.token_env(r) for r in ADAPTER_ROLES):
+        assert "PLANE" not in var and "KANBOARD" not in var and "GH_" not in var
+
+
+def test_the_migration_credential_is_its_own():
+    """Durante una migracion hay DOS boards a la vez. Hasta ahora funcionaba por
+    casualidad —origen Plane, destino Kanboard— y mover entre dos instancias del mismo
+    proveedor habria necesitado un nombre para las dos."""
     from baton.config import Config
 
-    for backend, var in [("kanboard", "KANBOARD_TOKEN"), ("plane", "PLANE_API_KEY")]:
-        c = Config(backend=backend)
-        assert c.token_env() == var
-        assert c.token_env("agent") == c.token_env("admin") == var, \
-            "el rol no puede cambiar de quién es la credencial del board"
+    assert Config(backend="plane").token_env("board") != \
+        Config(backend="plane").token_env("migration")
 
 
-def test_a_project_names_its_own_board_variable():
+def test_a_project_names_its_own_variables():
     from baton.config import Config
 
+    assert Config(backend="kanboard", tokens="MI_BOARD").token_env("board") == "MI_BOARD"
     assert Config(backend="kanboard",
-                  tokens="KB_DEL_PROYECTO").token_env() == "KB_DEL_PROYECTO"
+                  tokens={"repo": "MI_REPO"}).token_env("repo") == "MI_REPO"
 
 
 def test_a_config_written_before_this_still_loads():
-    """`tokens: {agent: X, admin: Y}` existe en discos ajenos. Nunca fueron dos
-    credenciales, así que cualquiera de los dos nombres resuelve a lo mismo."""
+    """`tokens: {agent: X, admin: Y}` existe en discos ajenos, y era del board."""
     from baton.config import Config
 
     c = Config(backend="kanboard", tokens={"agent": "VIEJO", "admin": "VIEJO"})
-    assert c.token_env() == "VIEJO"
+    assert c.token_env("board") == "VIEJO"
 
 
-def test_asking_for_admin_does_not_change_the_board_credential():
-    """`--as admin` sigue existiendo y sigue significando algo — en el REPO, donde
-    GitHub hace cumplir la separación. Del lado del board no tiene nada que elegir."""
-    import os
+def test_config_is_not_inherited_from_the_folder_above(tmp_path=None):
+    """Un repo sin vinculo tomaba el config de arriba —y su credencial—. Donde la
+    carpeta de arriba es una raiz de proyectos, esa credencial es la que crea repos y
+    protege ramas, entregada a un repo que nunca la pidio."""
+    import tempfile
+    from pathlib import Path
 
-    from baton.config import Config, github_token_env, resolve_token
+    from baton.config import find_config
 
-    c = Config(backend="kanboard")
-    os.environ["KANBOARD_TOKEN"] = "t"
-    try:
-        assert resolve_token(c, "admin") == resolve_token(c, "agent") == "t"
-    finally:
-        del os.environ["KANBOARD_TOKEN"]
-    assert github_token_env("agent") != github_token_env("admin"), \
-        "en el code host la separación sí es real"
+    with tempfile.TemporaryDirectory() as d:
+        raiz = Path(d)
+        (raiz / ".baton").mkdir()
+        (raiz / ".baton" / "config.yaml").write_text("adapters: {board: kanboard}\n")
+        hijo = raiz / "un-repo"
+        hijo.mkdir()
+
+        assert find_config(raiz) is not None, "la carpeta con config se encuentra"
+        assert find_config(hijo) is None, "la de adentro NO ve la de afuera"
+
+
+def test_running_from_a_subfolder_says_where_to_stand():
+    """La politica es que baton corre en la raiz del repo. Siendo politica y no
+    costumbre, se puede decir en voz alta en vez de buscar en silencio."""
+    from pathlib import Path
+
+    from baton.config import not_at_repo_root
+
+    aca = Path(__file__).resolve().parent          # tests/, dentro de este repo
+    dicho = not_at_repo_root(aca)
+    assert dicho and "root of the repository" in dicho and "cd " in dicho
+    assert not_at_repo_root(aca.parent) is None, "en la raiz del repo no dice nada"
+
+
+def test_a_root_is_declared_not_deduced():
+    """Una raiz es algo nuevo del modelo. Deducirla —tiene `repos:` y no `repo:`— seria
+    una inferencia silenciosa mas, en una herramienta que paso el dia sacandolas."""
+    from baton.config import Config
+
+    assert Config(backend="kanboard").is_root is False, "por defecto, un repo"
+    assert Config(backend="kanboard", kind="root").is_root is True
+
+
+def test_the_root_map_carries_folder_and_repo():
+    from baton.config import Config
+
+    c = Config(backend="kanboard", kind="root",
+               repos={"engine": {"folder": "./app-engine", "repo": "acme/app-engine"}})
+    assert c.repo_entry("engine") == {"folder": "./app-engine", "repo": "acme/app-engine"}
+    assert c.all_repos == ["acme/app-engine"]
+
+
+def test_an_unknown_key_is_none_not_a_default_repo():
+    """Nunca un fallback: caer al repo por defecto es como el trabajo termina en la rama
+    equivocada sin que nadie se entere."""
+    from baton.config import Config
+
+    c = Config(backend="kanboard", kind="root", repo="acme/app",
+               repos={"engine": {"folder": "./e", "repo": "acme/e"}})
+    assert c.repo_entry("no-existe") is None
 
 
 if __name__ == "__main__":

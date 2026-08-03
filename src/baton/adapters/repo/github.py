@@ -157,6 +157,11 @@ class GitHubRepo(RepoBase):
                 found.add("push")
         return found
 
+    def clone(self, into: Path) -> None:
+        if into.exists() and any(into.iterdir()):
+            return                          # already there: bootstrap is re-runnable
+        gh("repo", "clone", self.repo, str(into))
+
     def create_release(self, tag: str, *, target: str, title: str, notes: str) -> str:
         return gh("release", "create", tag, "--repo", self.repo, "--target", target,
                   "--title", title, "--notes", notes)

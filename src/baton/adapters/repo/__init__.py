@@ -10,18 +10,21 @@ find-before-create, and never trust a write you have not read back.
 from __future__ import annotations
 
 from ...base import BatonError
-from ...config import Config, github_token_env
+from ...config import Config, repo_token_env
 from .. import registry
 from .base import RepoBase
 
 
-def get(cfg: Config | None = None, repo: str | None = None,
-        role: str = "agent") -> RepoBase:
-    """The code host for `repo` (default: the project's own), as `role`."""
+def get(cfg: Config | None = None, repo: str | None = None) -> RepoBase:
+    """The code host for `repo` (default: the project's own).
+
+    No role: there is one credential, and what it may do is GitHub's answer about the
+    user behind it. baton picking between two variables never made that any more true.
+    """
     import os
     name = repo or (cfg.code_repo if cfg else None)
     provider = (cfg.adapters.get("repo") if cfg else None) or "github"
-    return registry.resolve("repo", provider)(name, os.environ.get(github_token_env(role)))
+    return registry.resolve("repo", provider)(name, os.environ.get(repo_token_env(cfg)))
 
 
 # What `git.release` may say. The project declares how its deployment is set off,

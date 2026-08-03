@@ -18,7 +18,7 @@ from .adapters.board.base import BoardBase
 from .adapters.read.base import ReadBase
 from .adapters.repo.base import RepoBase
 from .base import BatonError
-from .config import Config
+from .config import Config, register_repo
 
 
 class Baton:
@@ -29,8 +29,11 @@ class Baton:
     a gate, a two-sided flow, or an alias to resolve.
     """
 
-    def __init__(self, cfg: Config | None, role: str = "agent", *,
+    def __init__(self, cfg: Config | None, role: str | None = None, *,
                  board: BoardBase | None = None):
+        # `role` is accepted and ignored: callers written before roles of credential
+        # went away still pass one. Removing the parameter would break them for a
+        # value that never chose anything.
         self.cfg = cfg
         self.role = role
         self._board = board          # injectable: tests pass a fake, no network
@@ -47,10 +50,15 @@ class Baton:
     def repo(self, name: str | None = None) -> RepoBase:
         """The code host for `name` (default: the project's own repo). Not cached:
         a multi-repo project asks about several, one at a time."""
-        return _repo.get(self.cfg, name, self.role)
+        return _repo.get(self.cfg, name)
 
     def read(self, kind: str, **kw) -> ReadBase:
-        """A read-only migration source."""
+        """A read-only migration source, on the migration credential.
+
+        Its own, and not the board's, because a migration has TWO boards at once."""
+        import os
+        kw.setdefault("token", os.environ.get(self.cfg.token_env("migration"))
+                      if self.cfg else None)
         return _read.get(kind, **kw)
 
     # ---- rules ----
@@ -166,6 +174,29 @@ class Baton:
                                  if n.lower() not in {w.lower() for w, _ in wanted}]
         return out
 
+    def _bootstrap_validate(self, report: dict, integration: str, production: str) -> dict:
+        """Inside a repo: read, compare, report. No write reaches the host.
+
+        The repo and the board project already exist — they were created at the root —
+        so what is left here is saying whether the link is right and what is missing.
+        Anything that is missing gets fixed from the root, and the report says so.
+        """
+        cfg = self.cfg
+        report["validated"] = {}
+        if not cfg.code_repo:
+            raise BatonError("this repo declares no `repo:` — link it with the root's map")
+        ad = self.repo()
+        found = ad.find()
+        report["validated"]["repo"] = ("found" if found else
+                                       "MISSING — create it from the projects root")
+        report["validated"]["branches"] = (
+            ad.branch_protection([integration, production]) if found else {})
+        try:
+            report["validated"]["board"] = f"{len(self.board.list_stages())} stages"
+        except BatonError as e:
+            report["validated"]["board"] = f"UNREACHABLE — {e}"
+        return report
+
     def bootstrap(self, *, project_name: str | None = None, checks: list[str] | None = None,
                   reviews: int = 1, enforce_admins: bool = False,
                   prune: bool = False) -> dict:
@@ -183,19 +214,47 @@ class Baton:
         """
         cfg = self.cfg
         integration, production = cfg.git["integration"], cfg.git["production"]
-        report: dict = {"dry_run": False, "created": []}
+        report: dict = {"dry_run": False, "created": [], "mode": "repo"}
 
-        # --- repo side. Writes go on the ADMIN credential; a missing GH_ADMIN_TOKEN
-        # falls through to whatever `gh auth` holds and is reported by the admin gate
-        # below, rather than failing before anything is inspected.
+        # WHERE you stand decides what this may do, and that is the whole rule:
+        # everything that WRITES to the host happens at a projects root, with the
+        # credential you chose to put there. Inside a repo baton reads, compares and
+        # reports — it never creates a repo, never protects a branch, never creates the
+        # board project. Before this, `bootstrap` inside a repo could create another
+        # repo and nothing stopped it.
+        #
+        # Not a convention: baton knows which one it is, because a root says so.
+        if not (self.cfg and self.cfg.is_root):
+            return self._bootstrap_validate(report, integration, production)
+        report["mode"] = "root"
+
+        # --- repo side. One credential, whatever it can do. If it cannot create a
+        # repo or protect a branch, GitHub says so and that is reported — baton does
+        # not pick between two variables and call the difference a separation.
         if not cfg.code_repo:
             raise BatonError("bootstrap needs to know the repo (config `repo:`, or --repo)")
-        rp = _repo.get(cfg, None, "admin")
+        rp = _repo.get(cfg)
         facts, made = _repo.ensure(rp, cfg.visibility or "private")
         report["repo"] = {"name": facts["name"], "visibility": facts["visibility"],
                           "state": "created" if made else "existed"}
         if made:
             report["created"].append(f"repo {facts['name']} (undo: gh repo delete {facts['name']})")
+
+        # A repo created from the root needs a folder before it can have a config, and
+        # the map needs a folder that exists rather than a promise. Both happen here,
+        # right after creating it — the map is only trustworthy because nobody has to
+        # remember to update it.
+        if made and self.cfg.path:
+            base = self.cfg.path.parent.parent
+            key = facts["name"].split("/")[-1]
+            folder = base / key
+            try:
+                rp.clone(folder)
+                report["created"].append(f"clone at {folder}")
+            except BatonError as e:
+                report["clone"] = f"NOT cloned — {e}"
+            if register_repo(self.cfg.path, key, folder=f"./{key}", repo=facts["name"]):
+                report["created"].append(f"map entry {key}")
 
         state, cut = _repo.ensure_branch(rp, integration, base=facts["default_branch"])
         report["branch"] = {"name": integration, "state": state}
@@ -207,7 +266,7 @@ class Baton:
         # config already knows the list — so there is no flag to forget.
         report["protections"] = {}
         for name in cfg.all_repos:
-            ad = rp if name == facts["name"] else _repo.get(cfg, name, "admin")
+            ad = rp if name == facts["name"] else _repo.get(cfg, name)
             report["protections"][name] = _repo.protect(
                 ad, [integration, production], checks=checks, reviews=reviews,
                 enforce_admins=enforce_admins)

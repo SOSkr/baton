@@ -16,10 +16,25 @@ stage; the code lives in the target repo (which may differ from where the item l
 
 ## Start
 1. **Verify** approved: `baton show <id>` (check stage).
-2. **Identify the target repo** — `baton doctor` prints it. A single-repo project has
-   `repo:`; a multi-repo one has a `repos:` map keyed by the `area:` label value, so
-   the item's own label says where the work goes. Ask the user only if neither
-   resolves. Implementation happens **there**, not where the board lives.
+2. **Identify the target repo.** A single-repo project has one: its `repo:`. A
+   multi-repo project keeps the map at its **projects root**, and the item says which
+   entry with a `repo:` label:
+
+   ```
+   #42  type:bug  repo:app-engine
+   ```
+
+   Resolve the folder from the root's map — `baton doctor` at the root prints it — and
+   `cd` there. **If the label names something the map does not have, stop and say so.**
+   Do not fall back to the project's default repo: that is how work gets branched in
+   the wrong place and nobody finds out until the PR.
+
+   An item with no `repo:` on a multi-repo project should not exist — `baton new`
+   refuses to create one — so finding one means the item predates the map. Ask which
+   repo it is for; do not guess.
+
+   Implementation happens in that repo, **not** where the board lives, and baton runs
+   at the root of the repository.
 3. **Feature branch** (in the target repo):
    ```bash
    git checkout "$(baton config git.integration)" && git pull
