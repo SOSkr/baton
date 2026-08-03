@@ -248,9 +248,12 @@ it is protecting something:
 tokens: {agent: KANBOARD_TOKEN, admin: KANBOARD_TOKEN}
 ```
 
-On **Kanboard** that is not a shortcut, it is the truth: there is one application
-token, not one per user, so the split cannot be real there and saying so beats
-pretending.
+On **Kanboard** you do not even need to write it — it is the default. A Kanboard
+credential is the application token or a person's own, and **what it may do is
+Kanboard's answer**, from the role of the user behind it. baton does not get a vote
+there, so it does not invent a second variable to hold one. Two real Kanboard users
+are a real split, and then you declare two vars — but that is you stating a fact about
+your board, not baton assuming one.
 
 Worth knowing for Plane specifically: an API key inherits the role of the **user** who
 created it, so two keys from one account have identical power — the split there is real

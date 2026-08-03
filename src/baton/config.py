@@ -20,10 +20,18 @@ from .base import BatonError
 _DEFAULT_TOKENS = {
     "github": {"agent": "GH_TOKEN", "admin": "GH_ADMIN_TOKEN"},
     "plane": {"agent": "PLANE_API_KEY", "admin": "PLANE_ADMIN_API_KEY"},
-    # Kanboard's application token is not per-user, so a project that does not split
-    # the roles points both at the same var — `doctor` says so when the split is
-    # decorative rather than pretending it is real.
-    "kanboard": {"agent": "KANBOARD_TOKEN", "admin": "KANBOARD_ADMIN_TOKEN"},
+    # Kanboard: ONE credential, on purpose. There is no second token to point at —
+    # a Kanboard credential is either the application token or a person's own, and
+    # WHAT IT MAY DO IS KANBOARD'S ANSWER, from the role of the user behind it. A
+    # second variable would not split anything; it would duplicate a decision the
+    # backend already made, and `KANBOARD_ADMIN_TOKEN` named a thing that does not
+    # exist — so `bootstrap`, which runs as admin, failed on the first command of
+    # every new project.
+    #
+    # A project that DOES want two Kanboard users still says so in `tokens:`. This is
+    # only what happens when nobody declares anything, and `doctor` reports the split
+    # as decorative rather than letting anyone assume it protects something.
+    "kanboard": {"agent": "KANBOARD_TOKEN", "admin": "KANBOARD_TOKEN"},
 }
 BACKENDS = ("plane", "kanboard")
 

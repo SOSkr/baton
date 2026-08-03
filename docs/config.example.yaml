@@ -114,11 +114,15 @@ tokens:                  # the ENV VAR NAME to read per credential role. The age
   admin: KANBOARD_TOKEN  # § Credential roles. GitHub always reads GH_TOKEN /
                          # GH_ADMIN_TOKEN, whichever provider holds the board.
                          #
-                         # Both roles point at ONE var here on purpose: Kanboard has a
-                         # single application token, not one per user, so the split
-                         # cannot be real. That is the supported way to say so, and
-                         # `doctor` then reports it as decorative instead of letting
-                         # you assume it protects something.
+                         # Both roles read ONE var on Kanboard, and that is also the
+                         # DEFAULT — you can delete this whole block. A Kanboard
+                         # credential is the application token or a person's own, and
+                         # what it may do is Kanboard's answer, from the role of the
+                         # user behind it. baton does not get a vote, so it does not
+                         # invent a second variable. `doctor` reports the split as
+                         # decorative instead of letting you assume it protects
+                         # something. Two real Kanboard users? Then declare two vars
+                         # here — that split IS real, and it is yours to state.
                          #
                          # On Plane: {agent: PLANE_API_KEY, admin: PLANE_ADMIN_API_KEY}
                          # — and even there the split is real only when the two keys

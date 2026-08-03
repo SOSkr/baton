@@ -328,3 +328,29 @@ if __name__ == "__main__":
     test_shared_credential_roles_notices_a_decorative_split()
     test_doctor_reports_everything_even_with_no_credentials_at_all()
     print("ok")
+
+
+def test_kanboard_has_one_credential_not_two():
+    """Kanboard no tiene dos credenciales: tiene el token de aplicación o el personal
+    de una persona, y QUÉ PUEDE HACER lo decide Kanboard según el rol de su dueño.
+
+    Inventar un `KANBOARD_ADMIN_TOKEN` no separaba nada — nombraba algo inexistente,
+    y como `bootstrap` corre como admin, todo proyecto nuevo contra Kanboard fallaba
+    en el primer comando. Este board no lo sufrió porque su config se escribió a mano
+    con las dos claves iguales: el bug estuvo tapado por la única configuración que
+    ningún proyecto nuevo tiene.
+    """
+    from baton.config import Config
+
+    c = Config(backend="kanboard")          # sin `tokens:`, como lo deja bootstrap
+    assert c.token_env("agent") == c.token_env("admin") == "KANBOARD_TOKEN"
+
+
+def test_a_project_that_really_has_two_kanboard_users_still_declares_them():
+    """Lo de arriba es el default, no una imposición: dos usuarios de Kanboard son un
+    split real, y quien lo tenga lo dice."""
+    from baton.config import Config
+
+    c = Config(backend="kanboard",
+               tokens={"agent": "KB_BOT", "admin": "KB_HUMANO"})
+    assert (c.token_env("agent"), c.token_env("admin")) == ("KB_BOT", "KB_HUMANO")
