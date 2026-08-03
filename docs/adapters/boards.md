@@ -181,14 +181,18 @@ Two rules the role layer holds, so every backend inherits them:
 2. Export the class: `ADAPTER = MyTrackerBoard` at the bottom of the module. That is
    the whole registration — there is no factory to edit and no list to keep in sync
    (see [`adapters/registry.py`](../../src/baton/adapters/registry.py)).
-3. Add the name to `BACKENDS` in [`config.py`](../../src/baton/config.py), plus its
-   default credential env vars in `_DEFAULT_TOKENS`:
+3. Add the name to `BACKENDS` in [`config.py`](../../src/baton/config.py), plus what
+   its `target` needs before a config is worth writing:
 
 ```python
-_DEFAULT_TOKENS = {..., "mytracker": {"agent": "MYTRACKER_API_KEY",
-                                      "admin": "MYTRACKER_ADMIN_API_KEY"}}
-BACKENDS = ("plane", "mytracker")
+BACKENDS = ("plane", "kanboard", "mytracker")
+_REQUIRED_TARGET = {..., "mytracker": ("base_url", "project")}
 ```
+
+   **There is no credential var to add.** The name comes from the adapter ROLE —
+   a board reads `$BOARD_TOKEN` whichever provider serves it — so a new backend
+   inherits it. Writing `MYTRACKER_API_KEY` would put the provider back into the
+   name, and then swapping boards means exporting a different variable for nothing.
 
 4. Accept `(target: dict, token: str | None)` in `__init__`, validate `target` there,
    and raise `BatonError` naming the missing key.

@@ -396,12 +396,9 @@ $ baton doctor
 config: .baton/config.yaml
 backend: plane   board: {'base_url': 'https://plane.acme.com', 'workspace': 'acme', 'project': 'APP'}
 repos: engine=acme/app-engine, web=acme/app-web
-token[agent] $PLANE_API_KEY:
+board $BOARD_TOKEN:
   board (plane): OK — acme/APP — Acme App
-  code acme/app-engine: OK — acme-bot on acme/app-engine — push, pull
-  code acme/app-web: OK — acme-bot on acme/app-web — push, pull
-token[admin] $PLANE_ADMIN_API_KEY:
-  board (plane): OK — acme/APP — Acme App
+code $REPO_TOKEN:
   code acme/app-engine: OK — alice on acme/app-engine — admin, maintain, push, pull
   code acme/app-web: OK — alice on acme/app-web — admin, maintain, push, pull
 branch protection:

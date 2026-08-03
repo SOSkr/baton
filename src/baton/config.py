@@ -114,7 +114,7 @@ class Config:
     target: dict = field(default_factory=dict)   # github: {repo, owner?, project?}
     labels: dict = field(default_factory=dict)   # {axes: [...]}
     stages: dict = field(default_factory=dict)   # verb->stage aliases: {approve: Approved, ...}
-    tokens: dict = field(default_factory=dict)   # role->ENV VAR NAME: {agent: GH_TOKEN, admin: GH_ADMIN_TOKEN}
+    tokens: dict = field(default_factory=dict)   # adapter ROLE->ENV VAR NAME: {board: BOARD_TOKEN, repo: REPO_TOKEN}
     repo: str | None = None                       # OWNER/REPO where the CODE lives, when the board is elsewhere
     git: dict = field(default_factory=lambda: dict(DEFAULT_GIT))  # {integration, production}
     kind: str = "repo"                            # "repo" | "root" — see `is_root`
