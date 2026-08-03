@@ -14,31 +14,33 @@ import yaml
 from .base import BatonError
 
 
-# Env var NAMES. Tokens themselves NEVER live in config.yaml.
+# Env var NAMES, one per ADAPTER ROLE. Tokens themselves NEVER live in config.yaml.
 #
-# THE CODE HOST has two, and the split is real: agent writes code, admin approves and
-# merges — GitHub itself refuses to let a PR author approve their own PR.
-_DEFAULT_TOKENS = {
-    "github": {"agent": "GH_TOKEN", "admin": "GH_ADMIN_TOKEN"},
+# By role, not by provider, and that is the whole point: the name stays put when the
+# provider changes. Migrating this project's board from Plane to Kanboard would have
+# meant exporting a different variable — the provider was written into the name, and a
+# name that repeats what `adapters:` already says is a name that goes out of sync.
+#
+# There is no `agent` and no `admin`. baton does not model roles of credential: what a
+# credential may do is decided by whoever issued it, and A SEPARATION IS ONLY REAL WHEN
+# A THIRD PARTY ENFORCES IT. GitHub does — it will not let a PR author approve their own
+# PR. A board enforces the permissions of the user behind the token, which are the same
+# whichever variable it came from; pointing a second one at it separated nothing, and
+# nothing ever checked that the one called `admin` could do more.
+#
+# `migration` is not symmetry. During a migration there are TWO boards at once, and it
+# is the only moment two board credentials must coexist. Until now it worked by
+# accident — the source was Plane and the destination Kanboard, so their hardcoded
+# names happened to differ. Moving between two instances of the SAME provider collided.
+_TOKEN = {
+    "repo": "REPO_TOKEN",
+    "board": "BOARD_TOKEN",
+    "migration": "MIGRATION_TOKEN",
 }
 
-# THE BOARD has ONE. Not a simplification — the honest shape.
-#
-# A board credential belongs to a user, and what it may do is the BOARD's answer, from
-# that user's role. baton gets no vote, so it does not model two. Pointing a second
-# variable at a board separates nothing: it only picks, and nothing ever checked that
-# the one called `admin` could do more. On the code host that check exists and the host
-# enforces it; here it was an unverified claim — which is what `doctor` exists to kill.
-#
-# The rule, once: A SEPARATION IS ONLY REAL WHEN A THIRD PARTY ENFORCES IT.
-#
-# If that credential cannot create a project, the project gets created by hand and
-# `bootstrap` adopts it — which it already knows how to do. There is no privileged mode
-# to ask for: the permission belongs to the user, not to baton.
-_BOARD_TOKEN = {
-    "plane": "PLANE_API_KEY",
-    "kanboard": "KANBOARD_TOKEN",
-}
+# The roles an adapter can serve. `adapters:` in config maps each to a provider file.
+ADAPTER_ROLES = ("board", "repo", "migration")
+
 BACKENDS = ("plane", "kanboard")
 
 # What each board needs in `target` before its config is worth writing. Lives here
@@ -50,7 +52,6 @@ _REQUIRED_TARGET = {
     "plane": ("base_url", "workspace", "project"),
     "kanboard": ("base_url", "project"),
 }
-ROLES = ("agent", "admin")
 
 # Which provider serves each adapter role. The value is the FILE NAME under
 # `adapters/<role>/` — see adapters/registry.py. Only the board has ever varied; the
@@ -102,10 +103,10 @@ def _mcp_blocks(data: dict):
             yield ["projects", proj, "mcpServers"], cfg["mcpServers"]
 
 
-def github_token_env(role: str) -> str:
-    """GitHub's var for `role`, regardless of which backend holds the board. With a
-    Plane board, git is still GitHub and still needs its own credential."""
-    return _DEFAULT_TOKENS["github"][role]
+def repo_token_env(cfg: "Config | None" = None) -> str:
+    """The code host's variable. Separate from the board's because they are two
+    systems with two credentials — not because one outranks the other."""
+    return cfg.token_env("repo") if cfg else _TOKEN["repo"]
 
 
 @dataclass
@@ -136,20 +137,24 @@ class Config:
         if backend and not self.adapters.get("board"):
             self.adapters["board"] = backend
 
-    def token_env(self, role: str | None = None) -> str:
-        """The env var NAME holding THE board credential. `role` is accepted and
-        ignored: a board has one credential, and which verb is running does not change
-        whose it is.
+    def token_env(self, role: str | None = "board") -> str:
+        """The env var NAME holding the credential for an ADAPTER ROLE.
 
-        A `tokens:` written before this had a key per role. It is still read — those
-        were never two credentials, so either name resolves to the same thing.
+        `tokens:` overrides it, either as one name for the board — the common case —
+        or per role. What it never holds is a credential.
         """
+        role = role or "board"          # callers written before roles pass None
         t = self.tokens
         if isinstance(t, str) and t:
-            return t
+            return t if role == "board" else _TOKEN[role]
         if isinstance(t, dict) and t:
-            return t.get("agent") or t.get("admin") or _BOARD_TOKEN[self.backend]
-        return _BOARD_TOKEN[self.backend]
+            # A config written before roles-of-credential went away used `agent`/`admin`
+            # for the board. Those were never two credentials, so either resolves here.
+            if role == "board" and (t.get("agent") or t.get("admin")):
+                return t.get("agent") or t.get("admin")
+            if t.get(role):
+                return t[role]
+        return _TOKEN[role]
 
     @property
     def code_repo(self) -> str | None:
@@ -186,15 +191,13 @@ class Config:
 Config.backend = property(lambda self: self.adapters.get("board"))
 
 
-def resolve_token(cfg: Config, role: str | None = None) -> str | None:
-    """The board credential. One, whatever verb is asking.
+def resolve_token(cfg: Config, role: str = "board") -> str | None:
+    """The credential for an adapter role.
 
     Missing is fine and `doctor` reports it: the backend may have its own auth to fall
     back on, and dying at the door of every verb would be worse than saying it once.
-    `role` is accepted so existing callers keep working; it changes nothing, because
-    there is nothing for it to choose between.
     """
-    return os.environ.get(cfg.token_env())
+    return os.environ.get(cfg.token_env(role))
 
 
 def find_config(start: Path | None = None) -> Path | None:

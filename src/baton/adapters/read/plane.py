@@ -47,7 +47,7 @@ def _strip_html(s: str) -> str:
 
 class PlaneRead(ReadBase):
     def __init__(self, base_url: str | None = None, workspace: str | None = None,
-                 project: str | None = None, **_ignored):
+                 project: str | None = None, token: str | None = None, **_ignored):
         self.base_url = (base_url or "").rstrip("/")
         self.workspace = workspace
         self.project_identifier = project
@@ -55,9 +55,13 @@ class PlaneRead(ReadBase):
             raise BatonError(
                 "plane source needs base_url, workspace and project — declare them "
                 "under migrate_from: in .baton/config.yaml")
-        self.token = os.environ.get("PLANE_API_KEY")
+        self.token = token or os.environ.get("MIGRATION_TOKEN")
         if not self.token:
-            raise BatonError("PLANE_API_KEY env var required to read the old board")
+            raise BatonError(
+                "$MIGRATION_TOKEN required to read the old board. It is its own "
+                "variable because a migration has TWO boards at once — the source and "
+                "the destination — and moving between two instances of the same "
+                "provider would otherwise need one name for both.")
         self._project_id: str | None = None
         self._states: list[dict] | None = None
 

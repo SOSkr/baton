@@ -16,8 +16,9 @@ from pathlib import Path
 from . import __version__, version
 from .adapters import repo as _repo
 from .base import PRIORITIES, BatonError, Item
-from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, credential_sources,
-                     find_config, github_token_env, load, load_project, write_config)
+from .config import (BACKENDS, DEFAULT_GIT, Config,
+                     credential_sources, find_config, load, load_project,
+                     write_config)
 from .core import DEFAULT_STAGES, Baton
 
 
@@ -446,20 +447,17 @@ def cmd_doctor(a, b, cfg):
             print(f"board ${board_var}:")
             ok &= _probe(f"board ({cfg.backend})", lambda: Baton(cfg).board)
 
-        # git is a SECOND system, and there the split is real: GitHub enforces it, so
-        # each role is checked on its own. A credential can also reach one repo of a
-        # multi-repo project and not the next, so check each.
-        for role in ROLES:
-            gh_var = github_token_env(role)
-            if not cfg.all_repos:
-                continue
-            if not os.environ.get(gh_var):
-                print(f"code[{role}] ${gh_var}: NOT set — skipped")
-                _missing_credential(gh_var)
-                continue
-            print(f"code[{role}] ${gh_var}:")
+        # git is a SECOND system on a SECOND credential — "the board answers" says
+        # nothing about whether you can push. And one credential can reach one repo of
+        # a multi-repo project and not the next, so check each.
+        if cfg.all_repos:
+            repo_var = cfg.token_env("repo")
+            if not os.environ.get(repo_var):
+                print(f"code ${repo_var}: NOT set — falling back to `gh auth`")
+            else:
+                print(f"code ${repo_var}:")
             for r in cfg.all_repos:
-                ok &= _probe(f"code {r}", lambda x=r, ro=role: Baton(cfg, ro).repo(x))
+                ok &= _probe(f"code {r}", lambda x=r: Baton(cfg).repo(x))
     finally:
         if saved is None:
             os.environ.pop("GH_TOKEN", None)
@@ -559,10 +557,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-p", "--project", metavar="NAME|PATH",
                    help="operate on a sibling board instead of this one: a key of "
                         "`projects` in the config, or a path to its config/dir")
-    p.add_argument("--as", dest="role", choices=list(ROLES), default="agent",
-                   help="credential role: 'agent' (default — items, branches, PRs) or "
-                        "'admin' (create/administer projects, merge). Each reads its own "
-                        "env var; see `baton doctor`.")
+    # `--as` no longer chooses anything: there is one credential per adapter role,
+    # and what it may do is decided by whoever issued it. Kept so existing scripts and
+    # skills do not break on an unknown flag; it is a no-op and says so.
+    p.add_argument("--as", dest="role", choices=["agent", "admin"], default=None,
+                   help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     # `init` is the same command: with an existing repo and board, "create the project"

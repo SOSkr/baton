@@ -37,9 +37,10 @@ DEFAULT_STAGES = ("Review", "Approved", "In Progress", "Verify", "Deployed",
                   "Cancelled")
 
 
-def get(cfg: Config, role: str = "agent") -> BoardBase:
-    """The board, authenticated as `role` (agent | admin)."""
-    return registry.resolve("board", cfg.backend)(cfg.target, resolve_token(cfg, role))
+def get(cfg: Config, role: str | None = None) -> BoardBase:
+    """The board. One credential — `role` is accepted and ignored, for callers written
+    before roles of credential went away."""
+    return registry.resolve("board", cfg.backend)(cfg.target, resolve_token(cfg, "board"))
 
 
 def verb_stage(cfg: Config, verb: str) -> str:

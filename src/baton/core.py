@@ -29,8 +29,11 @@ class Baton:
     a gate, a two-sided flow, or an alias to resolve.
     """
 
-    def __init__(self, cfg: Config | None, role: str = "agent", *,
+    def __init__(self, cfg: Config | None, role: str | None = None, *,
                  board: BoardBase | None = None):
+        # `role` is accepted and ignored: callers written before roles of credential
+        # went away still pass one. Removing the parameter would break them for a
+        # value that never chose anything.
         self.cfg = cfg
         self.role = role
         self._board = board          # injectable: tests pass a fake, no network
@@ -47,10 +50,15 @@ class Baton:
     def repo(self, name: str | None = None) -> RepoBase:
         """The code host for `name` (default: the project's own repo). Not cached:
         a multi-repo project asks about several, one at a time."""
-        return _repo.get(self.cfg, name, self.role)
+        return _repo.get(self.cfg, name)
 
     def read(self, kind: str, **kw) -> ReadBase:
-        """A read-only migration source."""
+        """A read-only migration source, on the migration credential.
+
+        Its own, and not the board's, because a migration has TWO boards at once."""
+        import os
+        kw.setdefault("token", os.environ.get(self.cfg.token_env("migration"))
+                      if self.cfg else None)
         return _read.get(kind, **kw)
 
     # ---- rules ----
@@ -185,12 +193,12 @@ class Baton:
         integration, production = cfg.git["integration"], cfg.git["production"]
         report: dict = {"dry_run": False, "created": []}
 
-        # --- repo side. Writes go on the ADMIN credential; a missing GH_ADMIN_TOKEN
-        # falls through to whatever `gh auth` holds and is reported by the admin gate
-        # below, rather than failing before anything is inspected.
+        # --- repo side. One credential, whatever it can do. If it cannot create a
+        # repo or protect a branch, GitHub says so and that is reported — baton does
+        # not pick between two variables and call the difference a separation.
         if not cfg.code_repo:
             raise BatonError("bootstrap needs to know the repo (config `repo:`, or --repo)")
-        rp = _repo.get(cfg, None, "admin")
+        rp = _repo.get(cfg)
         facts, made = _repo.ensure(rp, cfg.visibility or "private")
         report["repo"] = {"name": facts["name"], "visibility": facts["visibility"],
                           "state": "created" if made else "existed"}
@@ -207,7 +215,7 @@ class Baton:
         # config already knows the list — so there is no flag to forget.
         report["protections"] = {}
         for name in cfg.all_repos:
-            ad = rp if name == facts["name"] else _repo.get(cfg, name, "admin")
+            ad = rp if name == facts["name"] else _repo.get(cfg, name)
             report["protections"][name] = _repo.protect(
                 ad, [integration, production], checks=checks, reviews=reviews,
                 enforce_admins=enforce_admins)

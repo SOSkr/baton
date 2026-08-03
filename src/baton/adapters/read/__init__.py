@@ -1,4 +1,8 @@
-"""The READ role: an old tracker being migrated OFF. Read-only, temporary.
+"""The MIGRATION role: an old tracker being migrated OFF. Read-only, temporary.
+
+Its credential is `$MIGRATION_TOKEN`, its own and not the board's — because during a
+migration there are TWO boards at once, and moving between two instances of the same
+provider would otherwise need one name for both.
 
 It lives in its own package so "this one cannot write" is a structural fact rather
 than a runtime question — nobody has to ask before calling. Delete the provider once
@@ -14,7 +18,12 @@ from .base import ReadBase
 _ALIASES = {"github": "github_projects"}
 
 
-def get(kind: str, **kw) -> ReadBase:
+def get(kind: str, token: str | None = None, **kw) -> ReadBase:
     """A read-only migration source. `kw` is the source's own coordinates
-    (repo, project, owner) — they come from flags or `config.migrate_from`."""
-    return registry.resolve("read", _ALIASES.get(kind, kind))(**kw)
+    (repo, project, owner) — they come from flags or `config.migrate_from`.
+
+    `token` comes from the caller, like every other role. It used to be read straight
+    from the environment inside the provider, with the variable name written into the
+    adapter — the one role that bypassed `tokens:` entirely.
+    """
+    return registry.resolve("read", _ALIASES.get(kind, kind))(token=token, **kw)
