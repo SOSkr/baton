@@ -577,6 +577,10 @@ disagree, because a wrong version number on PyPI cannot be taken back.
 - **`baton prune`** — flag stale items (old + referencing closed/superseded
   issues) for review, cheaply, before a model looks at the flagged subset.
   Designed, not built: [docs/design/prune.md](docs/design/prune.md).
+- **Review y spec sync automáticos** — un agente revisa el PR contra los criterios
+  del item, y al mergear detecta lo que el código y la spec ya no dicen igual.
+  Designed, not built:
+  [docs/design/automated-review-spec-sync.md](docs/design/automated-review-spec-sync.md).
 
 ## Status
 
