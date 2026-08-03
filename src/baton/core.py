@@ -18,7 +18,7 @@ from .adapters.board.base import BoardBase
 from .adapters.read.base import ReadBase
 from .adapters.repo.base import RepoBase
 from .base import BatonError
-from .config import Config, register_repo
+from .config import Config, register_repo, write_config
 
 
 class Baton:
@@ -255,6 +255,22 @@ class Baton:
                 report["clone"] = f"NOT cloned — {e}"
             if register_repo(self.cfg.path, key, folder=f"./{key}", repo=facts["name"]):
                 report["created"].append(f"map entry {key}")
+            # And the clone's own link. Without it the root leaves a folder with code
+            # and no config — exactly the state `find_config` refuses to work in, since
+            # nothing is inherited. Cloning and registering without this would hand
+            # someone a repo that baton cannot be run in.
+            if folder.is_dir():
+                try:
+                    child, _, _ = write_config(
+                        self.cfg.backend, dict(self.cfg.target), repo=facts["name"],
+                        git=dict(self.cfg.git), visibility=self.cfg.visibility,
+                        board_stages=list(self.cfg.board_stages or []), root=folder)
+                    report["created"].append(f"link at {child}")
+                except BatonError as e:
+                    # Reported, not raised, for the same reason the board side is: the
+                    # repo exists and is cloned by now, and an exception here would
+                    # take the record of that with it.
+                    report["link"] = f"NOT linked — {e}"
 
         state, cut = _repo.ensure_branch(rp, integration, base=facts["default_branch"])
         report["branch"] = {"name": integration, "state": state}

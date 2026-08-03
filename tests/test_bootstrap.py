@@ -687,7 +687,9 @@ def test_a_repo_created_at_the_root_gets_cloned_and_registered():
         cfg_path.write_text("kind: root\nadapters: {board: plane}\n")
 
         cfg = Config(backend="plane", kind="root", repo="acme/app",
-                     target={"project": "APP"}, board_stages=["Review"], path=cfg_path)
+                     target={"base_url": "https://p", "workspace": "w",
+                             "project": "APP"},
+                     board_stages=["Review"], path=cfg_path)
         rp, bd = RepoQueClona(exists=False), FakeBoard(exists=False)
         real_get, real_board_get = repo_role.get, board_role.get
         try:
@@ -698,6 +700,13 @@ def test_a_repo_created_at_the_root_gets_cloned_and_registered():
             repo_role.get, board_role.get = real_get, real_board_get
 
         assert rp.cloned_to == raiz / "app", "el repo nuevo se clona en la raiz"
+        # Y su vinculo. Sin esto la raiz deja una carpeta con codigo y sin config, que
+        # es justo el estado en el que `find_config` se niega a trabajar.
+        hijo = raiz / "app" / ".baton" / "config.yaml"
+        assert hijo.is_file(), "el repo clonado tiene que quedar vinculado"
+        c_hijo = load_file(hijo)
+        assert c_hijo.code_repo == "acme/app"
+        assert c_hijo.is_root is False, "el hijo es un repo, no otra raiz"
         assert load_file(cfg_path).repos == {"app": {"folder": "./app",
                                                      "repo": "acme/app"}}
         assert any("map entry" in c for c in rep["created"])
