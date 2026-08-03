@@ -63,6 +63,12 @@ class Baton:
         what the columns are called on the board it happens to be pointed at."""
         return None if value is None else _board.resolve_stage(self.cfg, value)
 
+    def groups(self) -> list:
+        """The roadmap, with the counting rule applied. Never `board.list_groups()`
+        directly: that is the backend's own arithmetic, and two backends already
+        disagreed about whether a cancelled item counts as done."""
+        return _board.groups(self.board, self.cfg)
+
     def stages_map(self) -> dict[str, str]:
         return _board.stage_map(self.cfg)
 
