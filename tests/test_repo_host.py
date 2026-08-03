@@ -156,6 +156,41 @@ def test_a_403_is_not_reported_as_a_missing_branch():
         gh_mod.gh = orig
 
 
+def test_a_repo_created_under_another_account_is_named_as_such():
+    """`gh repo create OWNER/NAME` DISCARDS the owner and creates under the token's
+    account, exit 0. Reading `find()` alone calls that "created but unreadable" and
+    sends someone to check a repo that was never going to be there."""
+    orig = gh_mod.gh
+    try:
+        gh_mod.gh, _ = _recorder({
+            "repo create": "https://github.com/acmeAgent/app\n",
+            "repos/acme/app": GhError("gh: Not Found (HTTP 404)", 404),
+        })
+        try:
+            gh_mod.GitHubRepo("acme/app").create("private")
+            assert False, "expected BatonError"
+        except BatonError as e:
+            msg = str(e)
+            assert "acme/app" in msg and "acmeAgent/app" in msg, "nombra las dos cuentas"
+            assert "cannot read it back" not in msg, "el diagnostico viejo miente aca"
+    finally:
+        gh_mod.gh = orig
+
+
+def test_the_repo_that_landed_where_it_was_asked_for_is_not_a_mismatch():
+    """El guard no puede disparar en el caso normal: misma cuenta, misma URL."""
+    orig = gh_mod.gh
+    try:
+        gh_mod.gh, _ = _recorder({
+            "repo create": "https://github.com/acme/app\n",
+            "repos/acme/app": {"full_name": "acme/app", "private": True,
+                               "default_branch": "master"},
+        })
+        assert gh_mod.GitHubRepo("acme/app").create("private")["name"] == "acme/app"
+    finally:
+        gh_mod.gh = orig
+
+
 def test_needs_a_repo():
     try:
         gh_mod.GitHubRepo("")
@@ -171,5 +206,7 @@ if __name__ == "__main__":
     test_a_403_is_not_reported_as_a_missing_branch()
     test_protection_states_are_distinguished()
     test_trunk_based_asks_once()
+    test_a_repo_created_under_another_account_is_named_as_such()
+    test_the_repo_that_landed_where_it_was_asked_for_is_not_a_mismatch()
     test_needs_a_repo()
     print("ok")
