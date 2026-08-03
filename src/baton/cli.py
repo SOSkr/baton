@@ -178,6 +178,20 @@ def _bootstrap_config(a):
 
 
 def _print_bootstrap(rep: dict) -> int:
+    if rep.get("mode") == "repo":
+        # Inside a repo baton read and compared; nothing was written to the host. What
+        # is missing gets fixed from the projects root, and the report says which.
+        v = rep.get("validated", {})
+        print(f"repo: {v.get('repo')}")
+        for b_, st in (v.get("branches") or {}).items():
+            print(f"  {b_}: {st}")
+        print(f"board: {v.get('board')}")
+        bad = ("MISSING" in str(v.get("repo")) or "UNREACHABLE" in str(v.get("board"))
+               or any("UNPROTECTED" in s_ for s_ in (v.get("branches") or {}).values()))
+        if bad:
+            print("\n  fix these from the projects root — inside a repo baton only reads.")
+        return 1 if bad else 0
+
     """One line per step, and the step's own words for what happened. The failure mode
     this guards against is not "it failed" — it is "it failed and looked like it
     worked", which is why every write here is reported from a read-back."""

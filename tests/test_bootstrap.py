@@ -357,7 +357,9 @@ def _baton(monkey_repo, monkey_board, cfg):
 
 
 def test_bootstrap_does_both_sides_in_one_call_and_says_what_it_created():
-    cfg = Config(backend="plane", repo="acme/app", target={"project": "APP"},
+    # `kind="root"`: crear repos y proteger ramas es de la raíz. Adentro de un repo
+    # `bootstrap` solo valida, y eso tiene su propio test más abajo.
+    cfg = Config(backend="plane", kind="root", repo="acme/app", target={"project": "APP"},
                  board_stages=["Review", "In Progress", "Deployed", "Cancelled"])
     rp, bd = FakeRepo(exists=False), FakeBoard(exists=False)
     real_get, real_board_get = repo_role.get, board_role.get
@@ -380,8 +382,8 @@ def test_bootstrap_does_both_sides_in_one_call_and_says_what_it_created():
 
 def test_bootstrap_on_an_existing_project_creates_nothing():
     """Adopting an existing repo+board is the same command: the lookups find them."""
-    cfg = Config(backend="plane", repo="acme/app", target={"project": "APP"},
-                 board_stages=["In Progress"])
+    cfg = Config(backend="plane", kind="root", repo="acme/app",
+                 target={"project": "APP"}, board_stages=["In Progress"])
     rp = FakeRepo(branches={"master": "s", "develop": "s"})
     bd = FakeBoard(states={"In Progress": "started"})
     real_get, real_board_get = repo_role.get, board_role.get
@@ -595,6 +597,8 @@ def test_a_board_that_refuses_to_be_created_does_not_erase_what_worked():
 
     No es hipotetico: una credencial que no puede crear proyectos contesta 403, y si
     puede o no lo decide el BOARD sobre su usuario, no baton.
+
+    Corre en modo RAIZ: crear es de la raiz, y este es el fallo de esa creacion.
     """
     from baton.config import Config
 
@@ -602,14 +606,14 @@ def test_a_board_that_refuses_to_be_created_does_not_erase_what_worked():
         def create_project(self, name):
             raise BatonError("kanboard createProject failed: 403 Forbidden")
 
-    cfg = Config(backend="plane", repo="acme/app", target={"project": "APP"},
-                 board_stages=["Review"])
+    cfg = Config(backend="plane", kind="root", repo="acme/app",
+                 target={"project": "APP"}, board_stages=["Review"])
     rp, bd = FakeRepo(exists=False), BoardQueNoPuedeCrear(exists=False)
     real_get, real_board_get = repo_role.get, board_role.get
     try:
         repo_role.get = lambda *a, **kw: rp
         board_role.get = lambda *a, **kw: bd
-        rep = Baton(cfg, "admin").bootstrap(checks=["test"])
+        rep = Baton(cfg).bootstrap(checks=["test"])
     finally:
         repo_role.get, board_role.get = real_get, real_board_get
 
@@ -617,3 +621,42 @@ def test_a_board_that_refuses_to_be_created_does_not_erase_what_worked():
     assert rep["repo"]["state"] == "created", "y lo que SI paso no puede perderse"
     assert rep["branch"]["state"] == "created"
     assert rep["protections"]["acme/app"], "las protecciones ya se habian aplicado"
+
+
+def test_inside_a_repo_bootstrap_never_writes_to_the_host():
+    """La regla entera: todo lo que ESCRIBE en el host pasa en la raiz. Adentro de un
+    repo baton lee, compara y reporta. Antes, `bootstrap` adentro de un repo podia
+    crear OTRO repo y nada lo impedia."""
+    from baton.config import Config
+
+    class RepoQueGrita(FakeRepo):
+        def create(self, visibility):
+            raise AssertionError("adentro de un repo no se crea nada")
+
+        def protect_branch(self, *a, **kw):
+            raise AssertionError("adentro de un repo no se protege nada")
+
+        def create_branch(self, *a, **kw):
+            raise AssertionError("adentro de un repo no se corta ninguna rama")
+
+    class BoardQueGrita(FakeBoard):
+        def create_project(self, name):
+            raise AssertionError("el proyecto del board es de la raiz")
+
+        def create_stage(self, *a, **kw):
+            raise AssertionError("las etapas son de la raiz")
+
+    cfg = Config(backend="plane", repo="acme/app", target={"project": "APP"},
+                 board_stages=["Review"])          # sin kind: root -> es un repo
+    rp, bd = RepoQueGrita(branches={"master": "s", "develop": "s"}), BoardQueGrita()
+    real_get, real_board_get = repo_role.get, board_role.get
+    try:
+        repo_role.get = lambda *a, **kw: rp
+        board_role.get = lambda *a, **kw: bd
+        rep = Baton(cfg).bootstrap(checks=["test"])
+    finally:
+        repo_role.get, board_role.get = real_get, real_board_get
+
+    assert rep["mode"] == "repo"
+    assert rep["validated"]["repo"] == "found"
+    assert "stages" in rep["validated"]["board"]

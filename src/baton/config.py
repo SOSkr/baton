@@ -371,6 +371,11 @@ def write_config(board: str, target: dict, *, repo: str | None = None,
     ordered = {k: merged[k] for k in _OWNED if k in merged}
     ordered.update({k: v for k, v in merged.items() if k not in ordered})
     p.parent.mkdir(parents=True, exist_ok=True)
+    # Nothing to change and the file is already there: do not rewrite it. A yaml
+    # round-trip cannot keep comments, so an idempotent re-run used to quietly strip
+    # the explanations someone wrote — a cost with nothing bought.
+    if p.is_file() and not changed and merged == existing:
+        return p, changed, False
     p.write_text(yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False))
     return p, changed, "#" in raw
 

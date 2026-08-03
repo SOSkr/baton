@@ -174,6 +174,29 @@ class Baton:
                                  if n.lower() not in {w.lower() for w, _ in wanted}]
         return out
 
+    def _bootstrap_validate(self, report: dict, integration: str, production: str) -> dict:
+        """Inside a repo: read, compare, report. No write reaches the host.
+
+        The repo and the board project already exist — they were created at the root —
+        so what is left here is saying whether the link is right and what is missing.
+        Anything that is missing gets fixed from the root, and the report says so.
+        """
+        cfg = self.cfg
+        report["validated"] = {}
+        if not cfg.code_repo:
+            raise BatonError("this repo declares no `repo:` — link it with the root's map")
+        ad = self.repo()
+        found = ad.find()
+        report["validated"]["repo"] = ("found" if found else
+                                       "MISSING — create it from the projects root")
+        report["validated"]["branches"] = (
+            ad.branch_protection([integration, production]) if found else {})
+        try:
+            report["validated"]["board"] = f"{len(self.board.list_stages())} stages"
+        except BatonError as e:
+            report["validated"]["board"] = f"UNREACHABLE — {e}"
+        return report
+
     def bootstrap(self, *, project_name: str | None = None, checks: list[str] | None = None,
                   reviews: int = 1, enforce_admins: bool = False,
                   prune: bool = False) -> dict:
@@ -191,7 +214,19 @@ class Baton:
         """
         cfg = self.cfg
         integration, production = cfg.git["integration"], cfg.git["production"]
-        report: dict = {"dry_run": False, "created": []}
+        report: dict = {"dry_run": False, "created": [], "mode": "repo"}
+
+        # WHERE you stand decides what this may do, and that is the whole rule:
+        # everything that WRITES to the host happens at a projects root, with the
+        # credential you chose to put there. Inside a repo baton reads, compares and
+        # reports — it never creates a repo, never protects a branch, never creates the
+        # board project. Before this, `bootstrap` inside a repo could create another
+        # repo and nothing stopped it.
+        #
+        # Not a convention: baton knows which one it is, because a root says so.
+        if not (self.cfg and self.cfg.is_root):
+            return self._bootstrap_validate(report, integration, production)
+        report["mode"] = "root"
 
         # --- repo side. One credential, whatever it can do. If it cannot create a
         # repo or protect a branch, GitHub says so and that is reported — baton does
