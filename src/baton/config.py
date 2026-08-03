@@ -380,6 +380,23 @@ def write_config(board: str, target: dict, *, repo: str | None = None,
     return p, changed, "#" in raw
 
 
+def register_repo(root_cfg: Path, key: str, *, folder: str, repo: str) -> bool:
+    """Add an entry to a ROOT's map. Returns whether anything changed.
+
+    `bootstrap` calls it right after creating a repo, and that is the point: a map
+    kept by hand is a map that is wrong by the third week. The one at the root is only
+    trustworthy because nobody has to remember to update it.
+    """
+    data = yaml.safe_load(root_cfg.read_text()) or {}
+    repos = data.setdefault("repos", {})
+    entry = {"folder": folder, "repo": repo}
+    if repos.get(key) == entry:
+        return False
+    repos[key] = entry
+    root_cfg.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
+    return True
+
+
 def load_project(name_or_path: str, base: Config) -> Config:
     """Load a SIBLING project's config, so one command can ask about another
     board without cd-ing into it.

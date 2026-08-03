@@ -660,3 +660,58 @@ def test_inside_a_repo_bootstrap_never_writes_to_the_host():
     assert rep["mode"] == "repo"
     assert rep["validated"]["repo"] == "found"
     assert "stages" in rep["validated"]["board"]
+
+
+def test_a_repo_created_at_the_root_gets_cloned_and_registered():
+    """El mapa solo es confiable porque nadie tiene que acordarse de actualizarlo. Y un
+    repo recien creado necesita una CARPETA antes de poder tener config — mandar a
+    clonarlo a mano es un paso que se saltea."""
+    import tempfile
+    from pathlib import Path
+
+    from baton.config import Config, load_file
+
+    class RepoQueClona(FakeRepo):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.cloned_to = None
+
+        def clone(self, into):
+            self.cloned_to = Path(into)
+            self.cloned_to.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as d:
+        raiz = Path(d)
+        (raiz / ".baton").mkdir()
+        cfg_path = raiz / ".baton" / "config.yaml"
+        cfg_path.write_text("kind: root\nadapters: {board: plane}\n")
+
+        cfg = Config(backend="plane", kind="root", repo="acme/app",
+                     target={"project": "APP"}, board_stages=["Review"], path=cfg_path)
+        rp, bd = RepoQueClona(exists=False), FakeBoard(exists=False)
+        real_get, real_board_get = repo_role.get, board_role.get
+        try:
+            repo_role.get = lambda *a, **kw: rp
+            board_role.get = lambda *a, **kw: bd
+            rep = Baton(cfg).bootstrap(checks=["test"])
+        finally:
+            repo_role.get, board_role.get = real_get, real_board_get
+
+        assert rp.cloned_to == raiz / "app", "el repo nuevo se clona en la raiz"
+        assert load_file(cfg_path).repos == {"app": {"folder": "./app",
+                                                     "repo": "acme/app"}}
+        assert any("map entry" in c for c in rep["created"])
+
+
+def test_registering_the_same_entry_twice_changes_nothing():
+    """`bootstrap` es re-corrible; el mapa no puede crecer con duplicados."""
+    import tempfile
+    from pathlib import Path
+
+    from baton.config import register_repo
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "config.yaml"
+        p.write_text("kind: root\n")
+        assert register_repo(p, "app", folder="./app", repo="acme/app") is True
+        assert register_repo(p, "app", folder="./app", repo="acme/app") is False

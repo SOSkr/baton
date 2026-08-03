@@ -18,7 +18,7 @@ from .adapters.board.base import BoardBase
 from .adapters.read.base import ReadBase
 from .adapters.repo.base import RepoBase
 from .base import BatonError
-from .config import Config
+from .config import Config, register_repo
 
 
 class Baton:
@@ -239,6 +239,22 @@ class Baton:
                           "state": "created" if made else "existed"}
         if made:
             report["created"].append(f"repo {facts['name']} (undo: gh repo delete {facts['name']})")
+
+        # A repo created from the root needs a folder before it can have a config, and
+        # the map needs a folder that exists rather than a promise. Both happen here,
+        # right after creating it — the map is only trustworthy because nobody has to
+        # remember to update it.
+        if made and self.cfg.path:
+            base = self.cfg.path.parent.parent
+            key = facts["name"].split("/")[-1]
+            folder = base / key
+            try:
+                rp.clone(folder)
+                report["created"].append(f"clone at {folder}")
+            except BatonError as e:
+                report["clone"] = f"NOT cloned — {e}"
+            if register_repo(self.cfg.path, key, folder=f"./{key}", repo=facts["name"]):
+                report["created"].append(f"map entry {key}")
 
         state, cut = _repo.ensure_branch(rp, integration, base=facts["default_branch"])
         report["branch"] = {"name": integration, "state": state}

@@ -70,6 +70,28 @@ it does *not* cross-check, and what this skill is actually for:
 
 Report the ones that are true. An empty read-out is a good answer, not a failed one.
 
+## An epic that spans repos
+
+A project can have several repos, and a deliverable rarely respects that boundary. An
+epic carries as many `repo:` labels as it touches, and its items carry theirs:
+
+```bash
+baton list --group "Q3 auth" --state all
+#42  [Review]   type:bug   repo:app-engine   token refresh loses the session
+#57  [Approved] type:idea  repo:app-web      the switcher flashes on first paint
+```
+
+Reading it is the same command; what changes is that **"what is missing" now has a
+where**. Two items left in an epic that live in different repos is a different plan
+from two in the same one — one needs two branches, two PRs and an order.
+
+Say that in the read-out when it is true. It is the one thing the board cannot work
+out on its own, and the reason someone asks you instead of looking.
+
+**Do not create an epic per repo to make this go away.** An epic is an outcome; the
+repos are where the work happens to sit. Splitting by repo turns the roadmap into a
+directory listing.
+
 ## Notes
 - **Progress is a count, not a stage.** An epic is not "In Progress" — it is 7/12.
   Never substitute one for the other.

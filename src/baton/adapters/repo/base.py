@@ -11,6 +11,7 @@ asked instead, so `baton bootstrap` never has to be standing inside a clone.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from ...base import BatonError
 
@@ -99,6 +100,15 @@ class RepoBase(ABC):
         and says so when they disagree; guessing from it would be the same mistake
         as guessing a required check — right until the day it is quietly wrong."""
         return set()
+
+    def clone(self, into: "Path") -> None:
+        """Put a working copy of this repo at `into`.
+
+        The one thing baton writes outside `.baton/`, and only from a projects root:
+        a repo created there needs a folder before it can have a config, and telling
+        someone to go clone it by hand is a step that gets skipped.
+        """
+        raise BatonError(f"{type(self).__name__} cannot clone")
 
     def create_release(self, tag: str, *, target: str, title: str, notes: str) -> str:
         """Publish a release at `tag` on `target`. Returns its URL.
