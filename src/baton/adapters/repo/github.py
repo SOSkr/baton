@@ -11,6 +11,8 @@ baton's vocabulary to GitHub's is the only thing this file is allowed to know.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 from ...base import BatonError
 from .._gh import gh, status_of, use_token
@@ -130,6 +132,58 @@ class GitHubRepo(RepoBase):
         }
         gh("api", "-X", "PUT", f"repos/{self.repo}/branches/{branch}/protection",
            "--input", "-", stdin=json.dumps(body))
+
+    # ---- releasing ----
+    def release_triggers(self) -> set[str]:
+        """Read off the workflows' `on:`, in the checkout — not from the API.
+
+        A workflow file is what actually decides this, and it is right here. Parsed
+        with a regex rather than YAML on purpose: this reads ONE key to warn a human,
+        and a warning that needs a parser to be right is a warning that will be wrong
+        the day the file gets clever.
+        """
+        found: set[str] = set()
+        wf = Path(".github/workflows")
+        if not wf.is_dir():
+            return found
+        for f in sorted(wf.glob("*.y*ml")):
+            txt = f.read_text(errors="ignore")
+            head = txt.split("jobs:", 1)[0]
+            if re.search(r"^\s*release:", head, re.M):
+                found.add("release")
+            if re.search(r"^\s*tags:", head, re.M):
+                found.add("tag")
+            elif re.search(r"^\s*push:", head, re.M):
+                found.add("push")
+        return found
+
+    def create_release(self, tag: str, *, target: str, title: str, notes: str) -> str:
+        return gh("release", "create", tag, "--repo", self.repo, "--target", target,
+                  "--title", title, "--notes", notes)
+
+    def release_exists(self, tag: str) -> bool:
+        try:
+            gh("release", "view", tag, "--repo", self.repo, "--json", "tagName")
+            return True
+        except BatonError as e:
+            if status_of(e) in (404, None):
+                return False
+            raise
+
+    def create_tag(self, tag: str, *, target: str) -> None:
+        sha = self.branch_sha(target)
+        if sha is None:
+            raise BatonError(f"cannot tag {target!r}: no such ref on {self.repo}")
+        gh("api", f"repos/{self.repo}/git/refs", "-X", "POST",
+           "-f", f"ref=refs/tags/{tag}", "-f", f"sha={sha}")
+
+    def deploy_runs(self, tag: str) -> dict[str, str]:
+        """Runs whose head is this tag. `status` when it has not finished, so a caller
+        can tell "still going" from "went wrong" — closing items on either is what
+        this is here to stop."""
+        rows = gh("run", "list", "--repo", self.repo, "--branch", tag, "--limit", "20",
+                  "--json", "name,status,conclusion", want_json=True) or []
+        return {r["name"]: (r.get("conclusion") or r.get("status") or "?") for r in rows}
 
     def set_delete_branch_on_merge(self, value: bool) -> None:
         gh("api", "-X", "PATCH", f"repos/{self.repo}",

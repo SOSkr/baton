@@ -55,9 +55,41 @@ bash .../ship-pr.sh "summary" --no-merge          # stop after checks
 If the repo has no such workflow the script says so and exits cleanly — there is
 just no deploy verification and no tag.
 
-## 4. Close the loop
+## 4. Set the deployment off — and find out whether it worked
 
-Only once the deploy is verified — never on merge alone:
+```bash
+baton release                       # tag from the project version, notes on stdin
+baton release --check               # verdict only, creates nothing
+```
+
+**What this does depends on `git.release`, and the project declares it.** Three
+shapes exist and no command can guess between them without being wrong on two:
+
+| `git.release` | The CI fires on | `baton release` |
+|---|---|---|
+| `release` | a published Release — a package | **creates** it |
+| `tag` | a pushed tag | **pushes** it |
+| `none` | the merge itself | creates nothing |
+
+Get it wrong and nothing objects: a Release created where the CI waits for a tag
+sets off nothing, and you find out from a user. That is why `baton release` refuses
+to run without the key, and `baton doctor` prints the mode next to what the repo's
+workflows actually declare.
+
+**It exits non-zero unless the deployment finished green** — including while a run
+is still going, because "not finished" is not "finished well". Re-running is safe:
+a release that already exists is reported, not duplicated, so a first attempt that
+died after creating it can be picked up.
+
+The tag comes from `pyproject.toml`; anywhere else, pass `--tag`. It is not guessed
+from the ecosystem on purpose — a wrong tag on a published package cannot be taken
+back, which is why a publish workflow should also refuse to build when the tag and
+the version disagree.
+
+## 5. Close the loop
+
+**Only once `baton release` exited zero.** Never on merge alone, and never on a
+release that was created but whose workflow you did not watch:
 
 ```bash
 baton ship <id>
@@ -85,3 +117,7 @@ in progress until the last part lands.
   `gh run list` before assuming success.
 - **A tag with no release, or no tag at all** → the deploy never completed
   healthy. Treat it as an incident, not a formality, and do not run `baton ship`.
+- **`baton release` says DEPLOY NOT VERIFIED** → close nothing. On 2026-08-02 a
+  release was believed published, did not exist, and PyPI kept serving the previous
+  version while seven items waited to close. Nothing objected, because moving a
+  stage always succeeds. That silence is what this step exists to break.

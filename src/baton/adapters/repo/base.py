@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from ...base import BatonError
+
 
 class RepoBase(ABC):
     # ---- discovery ----
@@ -77,6 +79,49 @@ class RepoBase(ABC):
         `reviews >= 1` is what stops an agent merging its own work: a host that
         forbids self-approval turns the review requirement into a second pair of eyes.
         """
+
+    # ---- releasing: OPTIONAL, like the board's grouping ----
+    # NOT abstract on purpose. A code host without releases is a real thing, and the
+    # `git.release: none` path never calls any of these — so forcing every
+    # implementation to stub them would buy nothing. A host that lacks the concept
+    # says so, the same way a board without epics does.
+    #
+    # What a release IS depends on the project, and the host is the only thing that
+    # knows how to make one. WHICH of these to call is baton's rule (`git.release`),
+    # decided once in `adapters/repo/__init__.py`.
+
+    def release_triggers(self) -> set[str]:
+        """What this repo's CI says fires a deployment: any of `release`, `tag`,
+        `push`. Read from whatever the host declares it in — for GitHub, the `on:`
+        of each workflow.
+
+        Used to CHECK, never to decide. `doctor` compares it against `git.release`
+        and says so when they disagree; guessing from it would be the same mistake
+        as guessing a required check — right until the day it is quietly wrong."""
+        return set()
+
+    def create_release(self, tag: str, *, target: str, title: str, notes: str) -> str:
+        """Publish a release at `tag` on `target`. Returns its URL.
+
+        **Published, not drafted.** A draft fires nothing, and a release that fires
+        nothing is exactly the failure this exists to prevent: it looks done."""
+        raise BatonError(f"{type(self).__name__} cannot create releases")
+
+    def release_exists(self, tag: str) -> bool:
+        """Re-running a ship must not create a second release, and must not fail
+        either — the first run may have died after creating it."""
+        raise BatonError(f"{type(self).__name__} cannot create releases")
+
+    def create_tag(self, tag: str, *, target: str) -> None:
+        """Push a tag at `target`, for projects whose CI fires on tags."""
+        raise BatonError(f"{type(self).__name__} cannot create tags")
+
+    def deploy_runs(self, tag: str) -> dict[str, str]:
+        """Workflow run name -> conclusion, for the runs that `tag` set off.
+
+        This is what turns "the release was created" into "the release worked".
+        Without it a ship reports success for having made a git object."""
+        return {}
 
     @abstractmethod
     def set_delete_branch_on_merge(self, value: bool) -> None:
