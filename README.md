@@ -97,14 +97,14 @@ prompts, so a new agent is a symlink into wherever that agent reads skills from.
 ```
 baton/
 ├── src/baton/
-│   ├── cli.py            # verbs: init/config/export/new/priority/verify/show/list/stages/groups/group/advance/approve/start/ship/comment/close/labels/body/doctor
+│   ├── cli.py            # verbs: bootstrap/init/config/export/new/priority/show/list/stages/groups/group/advance/approve/start/verify/ship/release/comment/close/labels/body/doctor
 │   ├── core.py            # class Baton — the one door: skills and cli.py talk to this
 │   ├── base.py            # shared vocabulary: BatonError + Item/Group/Comment
 │   ├── config.py          # .baton/config.yaml loader (walks up from cwd)
 │   └── adapters/          # three roles — see docs/adapters/
 │       ├── registry.py    # name -> class by file name; the only importer of a provider
 │       ├── board/         # read-WRITE: where item state lives (kanboard.py, plane.py)
-│       ├── read/          # read-ONLY: old trackers, read once to migrate off (github_projects.py)
+│       ├── read/          # read-ONLY: old trackers, read once to migrate off (github_projects.py, plane.py)
 │       └── repo/          # the code host: permissions, branches, PRs (github.py)
 ├── docs/                  # adapters/ (how to write each family) · git-flow.md · design/
 ├── skills/                # the judgment layer, calls the CLI. Each skill's templates/ is a symlink into ↓
@@ -199,9 +199,9 @@ each column** (and declaring `stages.verify` **gates** it) · `repos` maps an `a
 label to a repo for multi-repo projects · `tokens` holds env var NAMES, never
 credentials · `git` names your branches, explained in
 [docs/git-flow.md](docs/git-flow.md), and declares **how your deployment is set
-off** (`git.release`: `release` · `tag` · `none`) — `baton release` does that and
-verifies it ran, and refuses to guess, because a Release created where the CI waits
-for a tag sets off nothing and says so to nobody.
+off** (`git.release`: `release` · `tag` · `none`). That last one is **required to
+ship**: `baton release` refuses without it, because a Release created where the CI
+waits for a tag sets off nothing and says so to nobody.
 
 ### Stage names live in one place
 
@@ -317,8 +317,9 @@ link the PR back to the item. Full rules and where each one is enforced:
 ## Usage
 
 ```bash
-baton bootstrap --base-url https://p --workspace w --board APP --repo O/R --check test
+baton bootstrap --base-url https://board.acme.com --board APP --repo O/R --check test
                                     # create/adopt repo+board, protect, write config
+                                    # (plane also takes --workspace)
 baton doctor                        # validate config + credential roles + discovery
 baton stages                        # the board's stages
 baton new --title "Add dark mode" --label type:idea --stage Review
@@ -335,13 +336,15 @@ baton close 42 --reason "superseded by #99"
 
 baton priority 42 --to high          # the NATIVE field, not a priority: label
 baton export --state all             # read the OLD board out (migrate_from in config)
+
+baton release                        # set the deployment off the way `git.release` says,
+                                     # then verify it ran. Non-zero if it did not.
 ```
 
 ## Example
 
 ```
 $ baton doctor
-baton 0.2.0
 config: .baton/config.yaml
 backend: plane   board: {'base_url': 'https://plane.acme.com', 'workspace': 'acme', 'project': 'APP'}
 repos: engine=acme/app-engine, web=acme/app-web
@@ -358,18 +361,18 @@ branch protection:
   acme/app-web: develop=UNPROTECTED · master=protected
   ^ an unprotected branch means an agent with push rights skips the PR, the review and CI entirely.
     Fix: baton bootstrap --check <your CI check>   (idempotent; protects every repo the config declares)
-stages: Review, Approved, In Progress, Deployed
+stages: Review, Approved, In Progress, Verify, Deployed, Cancelled
 epics (native groups): 2 on the board
 
 $ baton show 42
 #42 [Approved] Add dark mode
-  https://github.com/OWNER/REPO/issues/42
+  https://board.acme.com/task/42
   priority: medium
   labels: type:idea
 
 $ baton show 42 --comments
 #42 [Approved] Add dark mode
-  https://github.com/OWNER/REPO/issues/42
+  https://board.acme.com/task/42
   priority: medium
   labels: type:idea
 
@@ -415,7 +418,7 @@ version can turn a feature off after the code claimed it.
 Writing a new adapter: implement the abstract methods, add the optional ones you can
 back natively, and leave the rest — the base class already degrades with a clear error.
 The names are deliberately backend-neutral, so `groups` maps to Plane *modules* or
-GitHub *milestones* without either word reaching a skill. Full guides per family:
+Kanboard *task links* without either word reaching a skill. Full guides per family:
 **[docs/adapters/](docs/adapters/)**.
 
 ## One board, several repos
@@ -432,8 +435,14 @@ early. Several *items* under one outcome is a different thing — that is an epi
 
 There is no roadmap document, by design — a document has to be updated by hand, goes
 stale immediately, and costs tokens to re-read. An **epic** is a native container with
-a target date and a progress count the backend maintains itself: close an item and the
+a target date, and the progress is read off the board every time: close an item and the
 roadmap is already right.
+
+The count is baton's, not the backend's, and that is deliberate. **Abandoned work is
+not progress** — a backend that counts "closed" counts cancelled items too, and then
+dropping a task is the fastest way to move a bar. Done means closed *and* not
+cancelled, decided once for every board rather than once per adapter, which is how two
+backends came to answer the same question differently.
 
 ```
 $ baton groups
@@ -441,7 +450,8 @@ Q3 auth        [7/12 58%]  due 2026-09-30
 Recorder v2    [0/4 0%]    due 2026-10-15
 ```
 
-"Epic" is the word; on Plane it is stored as a **module**. `baton group <id> --to X`
+"Epic" is the word; Plane stores it as a **module**, Kanboard as a task with links.
+Neither word reaches a skill. `baton group <id> --to X`
 refuses to create X — an epic is a deliberate act with a date, not a side effect of
 filing a task. Items with no epic are out-of-roadmap by design, not an error.
 
@@ -499,7 +509,8 @@ Repo includes `skills.sh.json` for display grouping; `skills/` matches the expec
 
 ## Requirements
 
-- `gh` CLI, authenticated, with `project` scope (GitHub backend).
+- `gh` CLI, authenticated. GitHub is the code host — `repo` scope is enough; the
+  `project` scope is not needed since GitHub Projects stopped being a board.
 - Python ≥ 3.11: `pipx install baton-board` (or `uv run baton ...` from a clone).
 
 The distribution is **`baton-board`** (`baton` was already taken on PyPI by an
@@ -521,7 +532,8 @@ disagree, because a wrong version number on PyPI cannot be taken back.
 
 ## Status
 
-Plane board adapter and the GitHub code-host client done, both verified live.
+Kanboard and Plane board adapters and the GitHub code-host client, all verified
+live — this project's own board runs on Kanboard.
 Published: [`baton-board` on PyPI](https://pypi.org/project/baton-board/), and
 `npx skills add SOSkr/baton` for the skills.
 

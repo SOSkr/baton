@@ -167,3 +167,43 @@ def test_the_close_contract_says_it_does_not_move_the_item():
     close_doc = base.split("def close(")[1].split("# ---- creation")[0]
     assert "do NOT move" in close_doc.lower() or "not move it" in close_doc.lower(), \
         "BoardBase.close must state that closing never picks a stage"
+
+
+def test_the_readme_lists_every_verb_the_cli_has():
+    """El README dibuja la lista de verbos en su árbol de arquitectura, y esa lista se
+    escribió a mano. `bootstrap` y `release` faltaban — no porque alguien se descuidara,
+    sino porque nada obligaba a tocarla al agregar un comando.
+
+    Este es el único de los catorce hallazgos de BATON-43 que impide que vuelva a
+    pasar; los otros trece se arreglan una vez y se vuelven a pudrir. Mismo patrón que
+    ya usa este archivo con `config.example.yaml`: lo que se puede verificar no se
+    pudre.
+    """
+    import re
+
+    from baton.cli import build_parser
+
+    verbos = set()
+    for accion in build_parser()._subparsers._group_actions:
+        verbos |= set(accion.choices)
+
+    linea = next(ln for ln in (ROOT / "README.md").read_text().splitlines()
+                 if "# verbs:" in ln)
+    escritos = set(re.split(r"[/\s]+", linea.split("# verbs:", 1)[1].strip()))
+
+    faltan = verbos - escritos
+    assert not faltan, f"el README no lista: {sorted(faltan)}"
+    sobran = escritos - verbos - {"init"}      # `init` es alias de bootstrap
+    assert not sobran, f"el README lista verbos que no existen: {sorted(sobran)}"
+
+
+def test_the_readme_shows_no_version_number_it_would_have_to_chase():
+    """El ejemplo de `doctor` decía `baton 0.2.0` con el proyecto en 0.5.0. Un número
+    escrito a mano en un README se pudre en el próximo release, y un test que lo
+    comparara contra pyproject obligaría a tocar el README en cada bump — trabajo
+    inventado. La salida del ejemplo no lo necesita."""
+    import re
+
+    ejemplo = (ROOT / "README.md").read_text().split("## Example", 1)[1].split("##", 1)[0]
+    suelto = re.findall(r"^baton \d+\.\d+\.\d+", ejemplo, re.M)
+    assert not suelto, f"versión escrita a mano en el ejemplo: {suelto}"
