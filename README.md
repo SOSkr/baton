@@ -225,40 +225,33 @@ Two roles, because the thing that writes code should not be the thing that appro
 the same separation Dependabot and Renovate rely on (GitHub does not let a PR author
 approve their own PR).
 
-| Role | Does | Board (`kanboard`) | Board (`plane`) | Code host (github) |
-|---|---|---|---|---|
-| `agent` | items, comments, stages, branches, PRs — **everything in the normal lifecycle** | `KANBOARD_TOKEN` | `PLANE_API_KEY` | `GH_TOKEN` |
-| `admin` | create and administer projects, set protections, merge releases | `KANBOARD_ADMIN_TOKEN` | `PLANE_ADMIN_API_KEY` | `GH_ADMIN_TOKEN` |
+**The board takes one credential; the code host takes two.**
 
-**Where the Kanboard token comes from:** *Settings → API → API token*. It authenticates
-as HTTP Basic with the literal username `jsonrpc` — that is Kanboard's convention for
-the application token, not a user you have to create.
+| | Reads | Why |
+|---|---|---|
+| board | `KANBOARD_TOKEN` · `PLANE_API_KEY` | one, always |
+| code host, `agent` | `GH_TOKEN` | writes code, branches, PRs |
+| code host, `admin` | `GH_ADMIN_TOKEN` | approves and merges |
 
-The board and the code host are two systems with two credentials each — `doctor` checks all four.
+The asymmetry is the point. **A separation is only real when a third party enforces
+it** — GitHub does, refusing to let a PR author approve their own PR. A board enforces
+the permissions of whoever owns the credential, and those are the same whichever
+variable it came from; a second one would only pick, while nothing ever checked that
+the one called `admin` could do more. That is an unverified claim, which is what
+`doctor` exists to kill.
 
-`agent` is the default; nothing needs `--as admin` except `baton-bootstrap` and the
-merge step of a release. Tokens themselves **never** go in `config.yaml` — only the
-env var names, so a project can point a role at a different variable.
-
-**One credential on the board?** Point both roles at it. That is the supported way to
-say so, and `doctor` then reports the split as decorative instead of letting you assume
-it is protecting something:
+So `--as admin` changes the **code host** credential and nothing else.
 
 ```yaml
-tokens: {agent: KANBOARD_TOKEN, admin: KANBOARD_TOKEN}
+tokens: KANBOARD_TOKEN     # optional — this is already the default for that backend
 ```
 
-On **Kanboard** you do not even need to write it — it is the default. A Kanboard
-credential is the application token or a person's own, and **what it may do is
-Kanboard's answer**, from the role of the user behind it. baton does not get a vote
-there, so it does not invent a second variable to hold one. Two real Kanboard users
-are a real split, and then you declare two vars — but that is you stating a fact about
-your board, not baton assuming one.
+**If that credential cannot create a project**, create the project by hand and re-run
+`baton bootstrap`: it adopts what already exists. There is no privileged mode to ask
+for, because the permission belongs to the user and not to baton.
 
 Worth knowing for Plane specifically: an API key inherits the role of the **user** who
-created it, so two keys from one account have identical power — the split there is real
-only when the two keys belong to two accounts. On GitHub it is enforced by the host
-itself, which does not let a PR author approve their own PR.
+created it, so which account made the key is the whole story.
 
 **Credential missing?** `doctor` looks for it in the MCP servers an agent runtime has
 configured (`~/.claude.json`, `.mcp.json`) and prints where it is, plus the command to

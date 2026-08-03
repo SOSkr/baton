@@ -17,8 +17,7 @@ from . import __version__, version
 from .adapters import repo as _repo
 from .base import PRIORITIES, BatonError, Item
 from .config import (BACKENDS, DEFAULT_GIT, ROLES, Config, credential_sources,
-                     find_config, github_token_env, load, load_project,
-                     shared_credential_roles, write_config)
+                     find_config, github_token_env, load, load_project, write_config)
 from .core import DEFAULT_STAGES, Baton
 
 
@@ -427,35 +426,33 @@ def cmd_doctor(a, b, cfg):
     if cfg.migrate_from:
         print(f"migration source: {cfg.migrate_from}")
 
-    both = shared_credential_roles(cfg)
-    if both:
-        # Reported for the same reason an agent token holding admin is reported: the
-        # split is the whole security story, and one that is not splitting anything
-        # should say so instead of being assumed.
-        print(f"note: {' and '.join(both)} both read ${cfg.token_env(both[0])} — "
-              f"the credential split is decorative on this board")
-
     ok = True
     saved = os.environ.get("GH_TOKEN")   # probing as admin must not leak into later ops
     try:
+        # The board: ONE credential, so one line. Which verb is running does not
+        # change whose it is — see `_BOARD_TOKEN`.
+        board_var = cfg.token_env()
+        if not os.environ.get(board_var):
+            print(f"board ${board_var}: NOT set — skipped")
+            _missing_credential(board_var)
+        else:
+            print(f"board ${board_var}:")
+            ok &= _probe(f"board ({cfg.backend})", lambda: Baton(cfg).board)
+
+        # git is a SECOND system, and there the split is real: GitHub enforces it, so
+        # each role is checked on its own. A credential can also reach one repo of a
+        # multi-repo project and not the next, so check each.
         for role in ROLES:
-            var = cfg.token_env(role)
-            if not os.environ.get(var):
-                print(f"token[{role}] ${var}: NOT set — skipped")
-                _missing_credential(var)
-                continue
-            print(f"token[{role}] ${var}:")
-            ok &= _probe(f"board ({cfg.backend})", lambda r=role: Baton(cfg, r).board)
-            # git is a SECOND system on a SECOND credential — "the board answers"
-            # says nothing about whether the agent can push. And a credential can
-            # reach one repo of a multi-repo project and not the next, so check each.
             gh_var = github_token_env(role)
+            if not cfg.all_repos:
+                continue
+            if not os.environ.get(gh_var):
+                print(f"code[{role}] ${gh_var}: NOT set — skipped")
+                _missing_credential(gh_var)
+                continue
+            print(f"code[{role}] ${gh_var}:")
             for r in cfg.all_repos:
-                if not os.environ.get(gh_var):
-                    print(f"  code {r} ${gh_var}: NOT set — skipped")
-                else:
-                    ok &= _probe(f"code {r}",
-                                 lambda x=r, ro=role: Baton(cfg, ro).repo(x))
+                ok &= _probe(f"code {r}", lambda x=r, ro=role: Baton(cfg, ro).repo(x))
     finally:
         if saved is None:
             os.environ.pop("GH_TOKEN", None)
