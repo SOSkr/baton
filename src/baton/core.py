@@ -72,10 +72,49 @@ class Baton:
     def stages_map(self) -> dict[str, str]:
         return _board.stage_map(self.cfg)
 
+    # ---- item verbs: everything that acts on ONE work-item ----
+    # They live here, and not as `b.board.<verb>` calls from the CLI, for one reason:
+    # a rule that has to be applied before every one of them needs a place where
+    # every one of them passes. Before this, seven verbs went straight to the adapter
+    # and only `advance` came through — so there was nowhere to put the guard that
+    # stops a deliverable from being treated as work (BATON-30).
+
+    def item(self, item_id: str):
+        """The item, refusing an id that is not one."""
+        _board.refuse_group(self.board, item_id, "show")
+        return self.board.get(item_id)
+
+    def comment(self, item_id: str, text: str) -> None:
+        _board.refuse_group(self.board, item_id, "comment")
+        self.board.comment(item_id, text)
+
+    def close(self, item_id: str, reason: str = "") -> None:
+        _board.refuse_group(self.board, item_id, "close")
+        self.board.close(item_id, reason)
+
+    def set_labels(self, item_id: str, add=None, remove=None) -> None:
+        _board.refuse_group(self.board, item_id, "labels")
+        self.board.set_labels(item_id, add=add or [], remove=remove or [])
+
+    def edit_body(self, item_id: str, body: str) -> None:
+        _board.refuse_group(self.board, item_id, "body")
+        self.board.edit_body(item_id, body)
+
+    def set_priority(self, item_id: str, value: str) -> None:
+        _board.refuse_group(self.board, item_id, "priority")
+        self.board.set_priority(item_id, value)
+
+    def set_group(self, item_id: str, name: str) -> None:
+        """Filing an epic inside another epic is the same mistake wearing a different
+        hat, and it happened in the same incident."""
+        _board.refuse_group(self.board, item_id, "group")
+        self.board.set_group(item_id, name)
+
     def advance(self, item_id: str, to: str) -> str:
         """Move an item, with both stage rules applied: the verify gate refuses a
         jump over verification, and a backward move gets flagged for review. Returns
         the stage moved to."""
+        _board.refuse_group(self.board, item_id, "advance")
         prev = self.board.get(item_id).stage
         _board.require_verify(self.board, self.cfg, item_id, prev, to)
         self.board.set_stage(item_id, to)

@@ -160,6 +160,58 @@ def test_verb_stage():
     assert verb_stage(c, "ship") == "Deployed"
 
 
+def _board_con_epica():
+    """Un board donde la épica es una tarea más — como Kanboard, que es donde el
+    problema existe: comparten espacio de ids y nada más los distingue."""
+    from baton.base import Group
+
+    a = FakeAdapter()
+    item = a.create("trabajo de verdad", "", [])
+    epica = a.create("Q3 auth", "", [])
+    a.list_groups = lambda: [Group(name="Q3 auth", id=epica.id, total=1, done=0)]
+    a.set_group = lambda item_id, name: None
+    return a, item.id, epica.id
+
+
+def test_item_verbs_refuse_an_epic():
+    """El 2026-08-02 un id mal tipeado corrió el ciclo entero sobre una épica: la
+    aprobó, la shipeó, la cerró y la metió dentro de la otra. Los SIETE comandos
+    contestaron éxito."""
+    from baton.config import Config
+    from baton.core import Baton
+
+    a, item, epica = _board_con_epica()
+    b = Baton(Config(backend="plane"), board=a)
+
+    for verbo, llamada in [
+        ("show", lambda i: b.item(i)),
+        ("comment", lambda i: b.comment(i, "hola")),
+        ("close", lambda i: b.close(i)),
+        ("labels", lambda i: b.set_labels(i, add=["x"])),
+        ("body", lambda i: b.edit_body(i, "x")),
+        ("advance", lambda i: b.advance(i, "Approved")),
+        ("group", lambda i: b.set_group(i, "Q3 auth")),
+    ]:
+        llamada(item)                       # sobre un item, pasa
+        try:
+            llamada(epica)
+        except BatonError as e:
+            assert "is an epic" in str(e) and "Q3 auth" in str(e), f"{verbo}: {e}"
+            assert "baton groups" in str(e), f"{verbo}: no dice qué usar en su lugar"
+        else:
+            raise AssertionError(f"`{verbo}` aceptó una épica sin decir nada")
+
+
+def test_a_board_without_epics_is_not_slowed_down_by_the_guard():
+    """`list_groups` levanta el error de capacidad ausente en un backend sin
+    agrupación. Eso no puede volverse un fallo de cada verbo."""
+    from baton.adapters.board import refuse_group
+
+    a = FakeAdapter()
+    it = a.create("x", "", [])
+    refuse_group(a, it.id, "close")      # no explota: no hay con qué confundirlo
+
+
 def test_cancelled_work_is_not_progress():
     """Descartar trabajo era la forma más rápida de mover la barra: cerrar por
     cancelación cerraba el item, y el backend contaba cerrados. Un roadmap que sube

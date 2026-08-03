@@ -154,6 +154,22 @@ class BoardBase(ABC):
         """Which optional features below this backend supports natively."""
         return set()
 
+    def is_group(self, item_id: str) -> bool:
+        """Is this id a deliverable rather than a work-item?
+
+        Asked before every verb that acts on an item, because on a backend where an
+        epic IS a task the two share an id space and nothing else tells them apart —
+        and a typo'd id once ran the whole lifecycle over a deliverable, with all
+        seven verbs answering success.
+
+        The default answer costs a `list_groups()`. A provider that can tell cheaply
+        should say so: the point of putting it here is one RULE, not one query plan.
+        """
+        try:
+            return any(str(g.id) == str(item_id) for g in self.list_groups())
+        except BatonError:
+            return False            # no grouping concept: nothing to confuse it with
+
     def list_groups(self) -> list[Group]:
         """Every deliverable/epic on the board, with target date and progress."""
         raise BatonError(f"{type(self).__name__} has no grouping concept")

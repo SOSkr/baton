@@ -45,7 +45,7 @@ def cmd_new(a, b, cfg):
 
 
 def cmd_show(a, b, cfg):
-    it = b.board.get(a.id)
+    it = b.item(a.id)
     if a.json:
         _emit({"item": it, "comments": b.board.comments(a.id)} if a.comments else it, True)
         return
@@ -94,7 +94,7 @@ def cmd_groups(a, b, cfg):
 
 
 def cmd_group(a, b, cfg):
-    b.board.set_group(a.id, a.to)
+    b.set_group(a.id, a.to)
     _emit(f"#{a.id} → epic {a.to}", a.json)
 
 
@@ -115,30 +115,30 @@ def _cmd_verb(verb: str):
 
 def cmd_comment(a, b, cfg):
     body = a.body if a.body is not None else sys.stdin.read()
-    b.board.comment(a.id, body)
+    b.comment(a.id, body)
     _emit(f"commented on #{a.id}", a.json)
 
 
 def cmd_close(a, b, cfg):
     if a.reason:
-        b.board.comment(a.id, a.reason)
-    b.board.close(a.id, a.reason or "")
+        b.comment(a.id, a.reason)
+    b.close(a.id, a.reason or "")
     _emit(f"closed #{a.id}", a.json)
 
 
 def cmd_priority(a, b, cfg):
-    b.board.set_priority(a.id, a.to)
+    b.set_priority(a.id, a.to)
     _emit(f"#{a.id} priority → {a.to}", a.json)
 
 
 def cmd_labels(a, b, cfg):
-    b.board.set_labels(a.id, add=a.add or [], remove=a.remove or [])
+    b.set_labels(a.id, add=a.add or [], remove=a.remove or [])
     _emit(f"updated labels on #{a.id}", a.json)
 
 
 def cmd_body(a, b, cfg):
     body = a.body if a.body is not None else sys.stdin.read()
-    b.board.edit_body(a.id, body)
+    b.edit_body(a.id, body)
     _emit(f"updated body of #{a.id}", a.json)
 
 
