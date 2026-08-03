@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from baton.base import BatonError  # noqa: E402
-from baton.config import (github_token_env, load, load_project,  # noqa: E402
-                          resolve_token, write_config)  # noqa: E402
+from baton.config import (load, load_project,  # noqa: E402
+                          write_config)  # noqa: E402
 
 
 def _write(p: Path, text: str):
@@ -83,24 +83,6 @@ def test_defaults_when_fields_absent():
         assert cfg.memory is None and cfg.projects == {}
 
 
-def test_token_roles_have_defaults_and_are_overridable():
-    with tempfile.TemporaryDirectory() as d:
-        root = Path(d)
-        _write(root / ".baton" / "config.yaml", _PLANE % "P")
-        cfg = load(root)
-        assert cfg.token_env("agent") == "PLANE_API_KEY"
-        assert cfg.token_env("admin") == "PLANE_ADMIN_API_KEY"
-        # git is a separate system with its own pair, whatever holds the board
-        assert github_token_env("agent") == "GH_TOKEN"
-        assert github_token_env("admin") == "GH_ADMIN_TOKEN"
-
-        _write(root / "p" / ".baton" / "config.yaml",
-               _PLANE % "P" + "tokens: {admin: MY_ADMIN_VAR}\n")
-        p = load(root / "p")
-        assert p.token_env("agent") == "PLANE_API_KEY"   # default kept
-        assert p.token_env("admin") == "MY_ADMIN_VAR"    # override honoured
-
-
 def test_github_projects_backend_is_refused_with_a_route_forward():
     """An old config must not half-work: it fails with the migration path in the
     message, not with a confusing discovery error three verbs later."""
@@ -112,29 +94,6 @@ def test_github_projects_backend_is_refused_with_a_route_forward():
             assert False, "expected BatonError"
         except BatonError as e:
             assert "no longer a board backend" in str(e) and "baton export" in str(e)
-
-
-def test_admin_role_refuses_to_fall_back_to_the_agent_credential():
-    """The whole point of the split: an admin op must NOT silently run with agent
-    rights. A missing agent credential is fine (the backend has its own auth)."""
-    with tempfile.TemporaryDirectory() as d:
-        root = Path(d)
-        _write(root / ".baton" / "config.yaml", _PLANE % "P")
-        cfg = load(root)
-        old = os.environ.pop("PLANE_ADMIN_API_KEY", None)
-        try:
-            assert resolve_token(cfg, "agent") == os.environ.get("PLANE_API_KEY")
-            try:
-                resolve_token(cfg, "admin")
-                assert False, "expected BatonError"
-            except BatonError as e:
-                assert "PLANE_ADMIN_API_KEY" in str(e)
-            os.environ["PLANE_ADMIN_API_KEY"] = "sekret"
-            assert resolve_token(cfg, "admin") == "sekret"
-        finally:
-            os.environ.pop("PLANE_ADMIN_API_KEY", None)
-            if old is not None:
-                os.environ["PLANE_ADMIN_API_KEY"] = old
 
 
 def test_write_config_roundtrips_and_refuses_to_clobber():
@@ -278,21 +237,9 @@ def test_a_var_no_server_declares_is_simply_absent():
     assert credential_sources("NOPE_NOT_A_VAR_" + "X" * 8) == []
 
 
-def test_shared_credential_roles_notices_a_decorative_split():
-    """Pointing both roles at one variable is the supported way to say "this board has
-    one key" — but then the split is not splitting anything, and doctor says so."""
-    from baton.config import Config, shared_credential_roles
-    one = Config(backend="plane", tokens={"agent": "K", "admin": "K"})
-    assert shared_credential_roles(one) == ["agent", "admin"]
-    two = Config(backend="plane", tokens={"agent": "K", "admin": "K_ADMIN"})
-    assert shared_credential_roles(two) == []
-    assert shared_credential_roles(Config(backend="plane")) == []   # defaults differ
-
-
 def test_doctor_reports_everything_even_with_no_credentials_at_all():
     """Its contract: check EVERYTHING, then say what is broken. One that dies halfway
     hides the failure after the one it died on."""
-    import os
     from baton.cli import main
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
@@ -309,22 +256,62 @@ def test_doctor_reports_everything_even_with_no_credentials_at_all():
     assert rc == 1                          # and it reports failure rather than dying
 
 
+def test_a_board_has_one_credential_and_the_verb_does_not_change_it():
+    """Un board no tiene dos credenciales: tiene una, y qué puede hacer lo decide el
+    board según el usuario dueño. baton no tiene voto, así que no modela dos.
+
+    Apuntar una segunda variable a un board no separaba nada — solo elegía, y nadie
+    comprobaba nunca que la llamada `admin` pudiera más. En el code host esa
+    comprobación existe y la hace cumplir GitHub; acá era una afirmación sin verificar.
+    """
+    from baton.config import Config
+
+    for backend, var in [("kanboard", "KANBOARD_TOKEN"), ("plane", "PLANE_API_KEY")]:
+        c = Config(backend=backend)
+        assert c.token_env() == var
+        assert c.token_env("agent") == c.token_env("admin") == var, \
+            "el rol no puede cambiar de quién es la credencial del board"
+
+
+def test_a_project_names_its_own_board_variable():
+    from baton.config import Config
+
+    assert Config(backend="kanboard",
+                  tokens="KB_DEL_PROYECTO").token_env() == "KB_DEL_PROYECTO"
+
+
+def test_a_config_written_before_this_still_loads():
+    """`tokens: {agent: X, admin: Y}` existe en discos ajenos. Nunca fueron dos
+    credenciales, así que cualquiera de los dos nombres resuelve a lo mismo."""
+    from baton.config import Config
+
+    c = Config(backend="kanboard", tokens={"agent": "VIEJO", "admin": "VIEJO"})
+    assert c.token_env() == "VIEJO"
+
+
+def test_asking_for_admin_does_not_change_the_board_credential():
+    """`--as admin` sigue existiendo y sigue significando algo — en el REPO, donde
+    GitHub hace cumplir la separación. Del lado del board no tiene nada que elegir."""
+    import os
+
+    from baton.config import Config, github_token_env, resolve_token
+
+    c = Config(backend="kanboard")
+    os.environ["KANBOARD_TOKEN"] = "t"
+    try:
+        assert resolve_token(c, "admin") == resolve_token(c, "agent") == "t"
+    finally:
+        del os.environ["KANBOARD_TOKEN"]
+    assert github_token_env("agent") != github_token_env("admin"), \
+        "en el code host la separación sí es real"
+
+
 if __name__ == "__main__":
-    test_loads_new_fields()
-    test_sibling_by_name_and_by_path()
-    test_unknown_project_lists_known_ones()
-    test_defaults_when_fields_absent()
-    test_token_roles_have_defaults_and_are_overridable()
-    test_github_projects_backend_is_refused_with_a_route_forward()
-    test_admin_role_refuses_to_fall_back_to_the_agent_credential()
-    test_write_config_roundtrips_and_refuses_to_clobber()
-    test_code_repo_carries_the_git_host_the_board_knows_nothing_about()
-    test_multirepo_project_resolves_the_repo_from_the_area_label()
-    test_migration_source_is_project_data_not_skill_data()
-    test_git_branch_names_are_config_with_defaults()
-    test_write_config_rejects_incomplete_targets()
-    test_credential_sources_finds_the_server_without_reading_the_secret()
-    test_a_var_no_server_declares_is_simply_absent()
-    test_shared_credential_roles_notices_a_decorative_split()
-    test_doctor_reports_everything_even_with_no_credentials_at_all()
-    print("ok")
+    # Enumerado por reflexión y no a mano: la lista escrita quedó nombrando tests que
+    # ya no existen en cuanto uno se renombró, y ruff fue el único que lo notó.
+    ns = dict(globals())
+    fns = [(n, f) for n, f in ns.items() if n.startswith("test_") and callable(f)]
+    for nombre, fn in fns:
+        fn()
+        print(f"ok  {nombre}")
+    print(f"\n{len(fns)} checks passed")

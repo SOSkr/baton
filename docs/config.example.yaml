@@ -109,20 +109,22 @@ repos:                 # a board project can span several git repos; the `area:`
 
 # --- credentials (names only, never values) -----------------------------------------
 
-tokens:                  # the ENV VAR NAME to read per credential role. The agent writes
-  agent: KANBOARD_TOKEN  # code and items; the admin creates and merges. See the README's
-  admin: KANBOARD_TOKEN  # § Credential roles. GitHub always reads GH_TOKEN /
-                         # GH_ADMIN_TOKEN, whichever provider holds the board.
+tokens: KANBOARD_TOKEN   # the env var holding THE board credential. ONE, because a
+                         # board has one: what it may do is the BOARD's answer, from
+                         # the role of the user who owns it. baton gets no vote there,
+                         # so it does not model two — a second variable separates
+                         # nothing, it only picks, and nothing ever checked that the
+                         # one called "admin" could do more.
                          #
-                         # Both roles point at ONE var here on purpose: Kanboard has a
-                         # single application token, not one per user, so the split
-                         # cannot be real. That is the supported way to say so, and
-                         # `doctor` then reports it as decorative instead of letting
-                         # you assume it protects something.
+                         # The rule: a separation is only real when a third party
+                         # enforces it. GitHub does — it will not let a PR author
+                         # approve their own PR — and THAT split stays: the code host
+                         # always reads GH_TOKEN and GH_ADMIN_TOKEN, whichever
+                         # provider holds the board.
                          #
-                         # On Plane: {agent: PLANE_API_KEY, admin: PLANE_ADMIN_API_KEY}
-                         # — and even there the split is real only when the two keys
-                         # belong to two ACCOUNTS, since a key inherits its creator.
+                         # Delete this line and your backend's default is used. If the
+                         # credential cannot create a project, create it by hand and
+                         # re-run `baton bootstrap` — it adopts what exists.
 
 # --- optional wiring ----------------------------------------------------------------
 

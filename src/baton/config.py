@@ -14,16 +14,30 @@ import yaml
 from .base import BatonError
 
 
-# Env var NAMES per credential role. Tokens themselves NEVER live in config.yaml.
-# agent = write code, branches, items. admin = create/administer projects, merge.
-# "github" is not a board backend — it is the code host, and still needs its own pair.
+# Env var NAMES. Tokens themselves NEVER live in config.yaml.
+#
+# THE CODE HOST has two, and the split is real: agent writes code, admin approves and
+# merges — GitHub itself refuses to let a PR author approve their own PR.
 _DEFAULT_TOKENS = {
     "github": {"agent": "GH_TOKEN", "admin": "GH_ADMIN_TOKEN"},
-    "plane": {"agent": "PLANE_API_KEY", "admin": "PLANE_ADMIN_API_KEY"},
-    # Kanboard's application token is not per-user, so a project that does not split
-    # the roles points both at the same var — `doctor` says so when the split is
-    # decorative rather than pretending it is real.
-    "kanboard": {"agent": "KANBOARD_TOKEN", "admin": "KANBOARD_ADMIN_TOKEN"},
+}
+
+# THE BOARD has ONE. Not a simplification — the honest shape.
+#
+# A board credential belongs to a user, and what it may do is the BOARD's answer, from
+# that user's role. baton gets no vote, so it does not model two. Pointing a second
+# variable at a board separates nothing: it only picks, and nothing ever checked that
+# the one called `admin` could do more. On the code host that check exists and the host
+# enforces it; here it was an unverified claim — which is what `doctor` exists to kill.
+#
+# The rule, once: A SEPARATION IS ONLY REAL WHEN A THIRD PARTY ENFORCES IT.
+#
+# If that credential cannot create a project, the project gets created by hand and
+# `bootstrap` adopts it — which it already knows how to do. There is no privileged mode
+# to ask for: the permission belongs to the user, not to baton.
+_BOARD_TOKEN = {
+    "plane": "PLANE_API_KEY",
+    "kanboard": "KANBOARD_TOKEN",
 }
 BACKENDS = ("plane", "kanboard")
 
@@ -88,21 +102,6 @@ def _mcp_blocks(data: dict):
             yield ["projects", proj, "mcpServers"], cfg["mcpServers"]
 
 
-def shared_credential_roles(cfg: "Config") -> list[str]:
-    """Roles whose board credential resolves to the SAME env var.
-
-    Not an error — a solo project legitimately has one Plane key, and saying so in
-    `tokens:` is the supported way to declare it. But it means the agent/admin split is
-    not splitting anything on this board, and that should be visible rather than
-    assumed. (On Plane it can be decorative even with two variables: an API key inherits
-    the role of the user who made it, so two keys of one account have identical power.)
-    """
-    seen: dict[str, list[str]] = {}
-    for role in ROLES:
-        seen.setdefault(cfg.token_env(role), []).append(role)
-    return next((roles for roles in seen.values() if len(roles) > 1), [])
-
-
 def github_token_env(role: str) -> str:
     """GitHub's var for `role`, regardless of which backend holds the board. With a
     Plane board, git is still GitHub and still needs its own credential."""
@@ -137,9 +136,20 @@ class Config:
         if backend and not self.adapters.get("board"):
             self.adapters["board"] = backend
 
-    def token_env(self, role: str) -> str:
-        """The env var NAME holding the credential for `role`."""
-        return self.tokens.get(role) or _DEFAULT_TOKENS[self.backend][role]
+    def token_env(self, role: str | None = None) -> str:
+        """The env var NAME holding THE board credential. `role` is accepted and
+        ignored: a board has one credential, and which verb is running does not change
+        whose it is.
+
+        A `tokens:` written before this had a key per role. It is still read — those
+        were never two credentials, so either name resolves to the same thing.
+        """
+        t = self.tokens
+        if isinstance(t, str) and t:
+            return t
+        if isinstance(t, dict) and t:
+            return t.get("agent") or t.get("admin") or _BOARD_TOKEN[self.backend]
+        return _BOARD_TOKEN[self.backend]
 
     @property
     def code_repo(self) -> str | None:
@@ -176,22 +186,15 @@ class Config:
 Config.backend = property(lambda self: self.adapters.get("board"))
 
 
-def resolve_token(cfg: Config, role: str) -> str | None:
-    """The credential for `role`, read from its env var.
+def resolve_token(cfg: Config, role: str | None = None) -> str | None:
+    """The board credential. One, whatever verb is asking.
 
-    A missing `agent` credential is fine — the backend falls back to its own auth
-    (`gh auth`, or its own error). A missing `admin` one is NOT: silently running an
-    admin op with agent rights either fails confusingly or quietly does less than the
-    caller thinks it did.
+    Missing is fine and `doctor` reports it: the backend may have its own auth to fall
+    back on, and dying at the door of every verb would be worse than saying it once.
+    `role` is accepted so existing callers keep working; it changes nothing, because
+    there is nothing for it to choose between.
     """
-    var = cfg.token_env(role)
-    val = os.environ.get(var)
-    if role == "admin" and not val:
-        raise BatonError(
-            f"--as admin needs ${var}, which is not set. Refusing to fall back to the "
-            f"agent credential — set it, or run this op as the human who holds it."
-        )
-    return val
+    return os.environ.get(cfg.token_env())
 
 
 def find_config(start: Path | None = None) -> Path | None:
