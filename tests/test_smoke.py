@@ -275,6 +275,38 @@ def test_shipped_but_not_closed_is_not_done_yet():
     assert (g.done, g.total) == (0, 1)
 
 
+def test_a_multi_repo_project_makes_an_item_say_where_the_work_goes():
+    """Obligatorio y no con default. Un default es exactamente el fallback silencioso
+    que este eje viene a sacar: trabajo que se rama en el repo equivocado y no dice
+    nada hasta el PR."""
+    from baton.adapters.board import repos_of, require_repo
+    from baton.config import Config
+
+    uno = Config(backend="kanboard", repo="acme/app")
+    require_repo(uno, [])                       # un solo repo: el eje no aplica
+
+    varios = Config(backend="kanboard", kind="root",
+                    repos={"engine": {"repo": "acme/e"}, "web": {"repo": "acme/w"}})
+    try:
+        require_repo(varios, ["type:bug"])
+    except BatonError as e:
+        assert "has to say which" in str(e) and "engine" in str(e) and "web" in str(e)
+    else:
+        raise AssertionError("sin repo:, un proyecto multi-repo tiene que negarse")
+
+    try:
+        require_repo(varios, ["repo:inventado"])
+    except BatonError as e:
+        assert "not in this project's map" in str(e), str(e)
+        assert "engine" in str(e), "tiene que nombrar los que SÍ existen"
+    else:
+        raise AssertionError("un repo desconocido no puede pasar")
+
+    require_repo(varios, ["repo:engine"])       # uno válido: pasa
+    require_repo(varios, ["repo:engine", "repo:web"])   # una épica puede cruzar
+    assert repos_of(["type:bug", "repo:engine", "repo:web"]) == ["engine", "web"]
+
+
 def test_backward_flag():
     import argparse
     from baton.cli import cmd_advance

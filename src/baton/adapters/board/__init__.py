@@ -64,6 +64,46 @@ def resolve_stage(cfg: Config, value: str) -> str:
     return verb_stage(cfg, verb)
 
 
+# The label axis that says which repo an item's work belongs to. Its own axis and not
+# `area:`, which means "part of the system" and varies independently — a monorepo has
+# areas and one repo. Reusing it left a silent fallback: `area:cli` on a multi-repo
+# project is looked up, not found, and the branch is cut in the default repo.
+REPO_AXIS = "repo:"
+
+
+def repos_of(labels: list[str]) -> list[str]:
+    """The repo keys an item carries. Several is legal and meaningful: an epic can
+    span repos, which is why this lives on tags — the only multi-valued field a
+    Kanboard task has."""
+    return [lb.split(":", 1)[1].strip() for lb in labels or []
+            if lb.lower().startswith(REPO_AXIS)]
+
+
+def require_repo(cfg: Config, labels: list[str]) -> None:
+    """On a multi-repo project, an item must say which repo it is for — and the value
+    must be one the root map knows.
+
+    Mandatory rather than defaulted, on purpose. A default is exactly the silent
+    fallback this axis exists to remove: work that lands in the wrong branch and says
+    nothing until the PR.
+    """
+    known = set(cfg.repos)
+    if len(known) < 2:
+        return                          # one repo, or none: the axis has nothing to do
+    named = repos_of(labels)
+    if not named:
+        raise BatonError(
+            f"this project has {len(known)} repos, so an item has to say which:\n"
+            f"  --label repo:<one of {', '.join(sorted(known))}>")
+    unknown = [n for n in named if n not in known]
+    if unknown:
+        raise BatonError(
+            f"repo {', '.join(unknown)!r} is not in this project's map. "
+            f"Known: {', '.join(sorted(known))}.\n"
+            f"  A repo baton does not know is not a repo it can branch in — it is not "
+            f"assumed to be the default one.")
+
+
 def refuse_group(ad: BoardBase, item_id: str, verb: str) -> None:
     """Stop a work-item verb from acting on a deliverable.
 

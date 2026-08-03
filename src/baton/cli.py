@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, version
+from .adapters import board as _board
 from .adapters import repo as _repo
 from .base import PRIORITIES, BatonError, Item
 from .config import (BACKENDS, DEFAULT_GIT, Config,
@@ -39,6 +40,10 @@ def _emit(obj, as_json: bool):
 
 
 def cmd_new(a, b, cfg):
+    # Before anything is written: an item that cannot say where its work goes is an
+    # item someone will have to fix on the board, and by then it has an id people
+    # already wrote down.
+    _board.require_repo(cfg, a.label or [])
     it = b.board.create(a.title, a.body or "", a.label or [], priority=a.priority)
     stage = b.stage(a.stage)
     if stage:
