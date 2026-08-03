@@ -586,3 +586,34 @@ def test_with_no_deployment_there_is_nothing_to_verify():
 
     ok, runs = deploy_verdict(FakeReleasing("acme/app"), _cfg("none"), "v1.0.0")
     assert ok is True and runs == {}
+
+
+def test_a_board_that_refuses_to_be_created_does_not_erase_what_worked():
+    """El board es el ULTIMO de los cuatro pasos. Al morir ahi, la excepcion se llevaba
+    el reporte de que el repo ya estaba creado, la rama cortada y las protecciones
+    aplicadas — y quien lo corrio quedaba sin saber que paso.
+
+    No es hipotetico: una credencial que no puede crear proyectos contesta 403, y si
+    puede o no lo decide el BOARD sobre su usuario, no baton.
+    """
+    from baton.config import Config
+
+    class BoardQueNoPuedeCrear(FakeBoard):
+        def create_project(self, name):
+            raise BatonError("kanboard createProject failed: 403 Forbidden")
+
+    cfg = Config(backend="plane", repo="acme/app", target={"project": "APP"},
+                 board_stages=["Review"])
+    rp, bd = FakeRepo(exists=False), BoardQueNoPuedeCrear(exists=False)
+    real_get, real_board_get = repo_role.get, board_role.get
+    try:
+        repo_role.get = lambda *a, **kw: rp
+        board_role.get = lambda *a, **kw: bd
+        rep = Baton(cfg, "admin").bootstrap(checks=["test"])
+    finally:
+        repo_role.get, board_role.get = real_get, real_board_get
+
+    assert "403" in rep["board"]["failed"], "el fallo del board tiene que reportarse"
+    assert rep["repo"]["state"] == "created", "y lo que SI paso no puede perderse"
+    assert rep["branch"]["state"] == "created"
+    assert rep["protections"]["acme/app"], "las protecciones ya se habian aplicado"
