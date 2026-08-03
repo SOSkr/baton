@@ -160,6 +160,69 @@ def test_verb_stage():
     assert verb_stage(c, "ship") == "Deployed"
 
 
+def test_cancelled_work_is_not_progress():
+    """Descartar trabajo era la forma más rápida de mover la barra: cerrar por
+    cancelación cerraba el item, y el backend contaba cerrados. Un roadmap que sube
+    cuando se abandona algo dice lo contrario de lo que pasó."""
+    from baton.adapters.board import groups
+    from baton.base import Group, Item
+    from baton.config import Config
+
+    class Fake:
+        def list_groups(self):
+            # lo que el backend cree: tres cerrados de tres
+            return [Group(name="Q3", id="1", target_date="2026-09-15", total=3, done=3)]
+
+        def list(self, *, group=None, state="open", **_):
+            return [Item(id="1", title="entregado", stage="Deployed", state="closed"),
+                    Item(id="2", title="descartado", stage="Cancelled", state="closed"),
+                    Item(id="3", title="abierto", stage="Review", state="open")]
+
+    [g] = groups(Fake(), Config(backend="plane"))
+    assert (g.done, g.total) == (1, 3), "lo cancelado no cuenta como hecho"
+    assert g.target_date == "2026-09-15", "lo demás del grupo no se toca"
+
+
+def test_the_cancel_stage_comes_from_the_config():
+    """`Cancelled` es solo el default. Un board que llama a esa columna de otra forma
+    lo declara en `stages`, y la regla tiene que leer de ahí — si no, cuenta como
+    entregado el trabajo que ese proyecto descartó."""
+    from baton.adapters.board import groups
+    from baton.base import Group, Item
+    from baton.config import Config
+
+    class Fake:
+        def list_groups(self):
+            return [Group(name="Q3", id="1", total=2, done=2)]
+
+        def list(self, *, group=None, state="open", **_):
+            return [Item(id="1", title="entregado", stage="Desplegado", state="closed"),
+                    Item(id="2", title="descartado", stage="Descartado", state="closed")]
+
+    cfg = Config(backend="plane", stages={"cancel": "Descartado", "ship": "Desplegado"})
+    [g] = groups(Fake(), cfg)
+    assert (g.done, g.total) == (1, 2)
+
+
+def test_shipped_but_not_closed_is_not_done_yet():
+    """Un item en la etapa de ship sin cerrar no cuenta: salió cuando alguien dijo que
+    salió, y eso es `close`. Si contara, la barra subiría al mover una tarjeta."""
+    from baton.adapters.board import groups
+    from baton.base import Group, Item
+    from baton.config import Config
+
+    class Fake:
+        def list_groups(self):
+            return [Group(name="Q3", id="1", total=1, done=1)]
+
+        def list(self, *, group=None, state="open", **_):
+            return [Item(id="1", title="en deployed, abierto", stage="Deployed",
+                         state="open")]
+
+    [g] = groups(Fake(), Config(backend="plane"))
+    assert (g.done, g.total) == (0, 1)
+
+
 def test_backward_flag():
     import argparse
     from baton.cli import cmd_advance

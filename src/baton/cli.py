@@ -78,7 +78,10 @@ def cmd_list(a, b, cfg):
 def cmd_groups(a, b, cfg):
     """The roadmap: every epic, its target date, and how much of it is done. Read
     from the board every time, so there is nothing to keep up to date."""
-    gs = b.board.list_groups()
+    # NOT `b.board.list_groups()`: those counts are each backend's own idea of done,
+    # and abandoned work is not progress. `b.groups()` applies that rule once, for
+    # every provider — see `adapters/board/__init__.py`.
+    gs = b.groups()
     if a.json:
         _emit(gs, True)
         return

@@ -8,7 +8,9 @@ reached, and `tests/test_frontier.py` fails the build if that slips).
 """
 from __future__ import annotations
 
-from ...base import BatonError
+from dataclasses import replace
+
+from ...base import BatonError, Group
 from ...config import Config, resolve_token
 from .. import registry
 from .base import BoardBase
@@ -59,6 +61,38 @@ def resolve_stage(cfg: Config, value: str) -> str:
         raise BatonError(f"unknown lifecycle stage {value!r}. Known: "
                          + ", ".join("@" + k for k in _DEFAULT_STAGE))
     return verb_stage(cfg, verb)
+
+
+def groups(ad: BoardBase, cfg: Config) -> list[Group]:
+    """The roadmap, with progress that counts DELIVERED work.
+
+    The rule lives here and not in a provider because it is true of every board:
+    **abandoned work is not progress.** A backend that counts "closed" counts
+    cancelled items too, and then dropping a task becomes the fastest way to make a
+    bar move — the exact opposite of what a roadmap is for. Kanboard did that;
+    Plane, whose backend distinguishes completed from cancelled, did not. Two
+    counts for the same question, which is the argument for having one.
+
+    It also cannot live in a provider even if someone wanted it to: which column
+    means cancelled comes from `stages.cancel`, and an adapter is handed `target`
+    and a token — never the `Config`. The same wall `close()` hit (BATON-27) and
+    `_uid()` hit (BATON-39).
+
+    Done is **closed and not cancelled**. An item sitting in the ship stage without
+    being closed does not count either, and that is deliberate: it went out when
+    someone said it went out.
+
+    ponytail: one `list` per epic — three calls on this board. The alternative is
+    each provider counting on its own, which is what produced two answers already.
+    """
+    cancelled = verb_stage(cfg, "cancel").lower()
+    out = []
+    for g in ad.list_groups():
+        members = ad.list(group=g.name, state="all")
+        done = sum(1 for i in members
+                   if i.state == "closed" and (i.stage or "").lower() != cancelled)
+        out.append(replace(g, total=len(members), done=done))
+    return out
 
 
 def stage_map(cfg: Config) -> dict[str, str]:
