@@ -19,6 +19,7 @@ from .._gh import gh, status_of, use_token
 from .base import RepoBase
 
 _PERMS = ("admin", "maintain", "push", "pull")
+_CREATED_URL = re.compile(r"https?://[^/\s]+/([^/\s]+/[^/\s]+?)(?:\.git)?/?$", re.M)
 
 
 class GitHubRepo(RepoBase):
@@ -57,7 +58,22 @@ class GitHubRepo(RepoBase):
         and the integration branch is cut from that branch's sha."""
         if visibility not in ("private", "public"):
             raise BatonError(f"visibility must be private or public, got {visibility!r}")
-        gh("repo", "create", self.repo, f"--{visibility}", "--add-readme")
+        out = gh("repo", "create", self.repo, f"--{visibility}", "--add-readme")
+        # WHERE it landed, which is not necessarily where it was asked for: `gh` takes
+        # the owner prefix, DISCARDS it, creates under the account the token belongs to
+        # and exits 0. The URL it prints is the only place that says so — and reading
+        # `find()` alone would call that "created but unreadable", sending someone to
+        # check a repo that was never going to be there.
+        #
+        # Not an edge case since roles-of-credential: a root holding an agent's token
+        # is a token whose account differs from the owner you declared, by design.
+        landed = _CREATED_URL.findall(out.strip())
+        if landed and landed[-1].lower() != self.repo.lower():
+            mine, theirs = self.repo.split("/")[0], landed[-1].split("/")[0]
+            raise BatonError(
+                f"asked for {self.repo}, got {landed[-1]} — `gh` ignores the owner and "
+                f"creates under the token's account ({theirs}). Use a token of {mine}, "
+                f"or declare `repo: {landed[-1]}`. {landed[-1]} now exists.")
         found = self.find()
         if not found:                      # created, then not there: do not paper over it
             raise BatonError(f"created {self.repo} but cannot read it back — "
